@@ -1,0 +1,2027 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Referrer policy sicura per evitare blocchi sui tile server -->
+    <meta name="referrer" content="no-referrer-when-downgrade">
+    <title>Mappa Gas Tecnici Toscana | Analisi Georeferenziata ATECO (Zero API Key)</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS & JS (cdnjs affidabile senza restrizioni CORS/Referer) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <!-- Leaflet MarkerCluster CSS & JS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    
+    <!-- FontAwesome per icone industriali -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        html, body {
+            height: 100%;
+            width: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #dbeafe;
+        }
+        
+        /* Contenitore mappa e motore SVG nativo 100% autonomo (funziona anche senza CDN esterni) */
+        #map {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            min-height: 400px;
+            background: #dbeafe;
+            cursor: grab;
+            user-select: none;
+            touch-action: none;
+        }
+        #map:active {
+            cursor: grabbing;
+        }
+        .leaflet-container {
+            background: #dbeafe !important;
+            font-family: 'Inter', sans-serif;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Custom scrollbar per sidebar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        /* Personalizzazione Popup Leaflet */
+        .leaflet-popup-content-wrapper {
+            border-radius: 12px;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: 0 12px 28px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        }
+        .leaflet-popup-content {
+            margin: 0;
+            width: 320px !important;
+        }
+        .leaflet-container a.leaflet-popup-close-button {
+            color: #ffffff;
+            top: 10px;
+            right: 10px;
+            font-size: 18px;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+        }
+
+        /* Custom Marker Pin */
+        .custom-div-icon {
+            background: transparent;
+            border: none;
+        }
+        .marker-pin {
+            width: 32px;
+            height: 32px;
+            border-radius: 50% 50% 50% 0;
+            position: absolute;
+            transform: rotate(-45deg);
+            left: 50%;
+            top: 50%;
+            margin: -16px 0 0 -16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.35);
+            border: 2px solid #ffffff;
+            transition: transform 0.2s ease;
+        }
+        .marker-pin:hover {
+            transform: rotate(-45deg) scale(1.15);
+            z-index: 1000;
+        }
+        .marker-pin i {
+            transform: rotate(45deg);
+            color: white;
+            font-size: 13px;
+        }
+
+        /* Cluster customization */
+        .marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+            background-color: rgba(15, 23, 42, 0.22);
+        }
+        .marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
+            background-color: #0f172a;
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 flex flex-col md:flex-row h-screen w-screen overflow-hidden">
+
+    <!-- Notifica Toast (sostituisce alert()) -->
+    <div id="toastContainer" class="fixed bottom-5 right-5 z-[9999] flex flex-col gap-2 max-w-sm pointer-events-none"></div>
+
+    <!-- Pulsante Toggle Sidebar su Mobile -->
+    <button id="mobileToggleBtn" class="md:hidden fixed top-3 left-3 z-[1001] bg-slate-900 text-white px-3.5 py-2.5 rounded-xl shadow-lg flex items-center gap-2 text-sm font-medium">
+        <i class="fa-solid fa-sliders"></i>
+        <span>Filtri & Dati</span>
+    </button>
+
+    <!-- SIDEBAR SINISTRA -->
+    <aside id="sidebar" class="fixed md:static inset-y-0 left-0 z-[1000] w-full sm:w-[400px] lg:w-[430px] bg-white border-r border-slate-200 flex flex-col h-full shadow-xl md:shadow-none transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out">
+        
+        <!-- Header Sidebar -->
+        <div class="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-sky-400">
+                    <i class="fa-solid fa-industry text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-base leading-tight tracking-tight">Gas Tecnici Toscana</h1>
+                    <p class="text-xs text-slate-400">Mappatura B2B per Codice ATECO</p>
+                </div>
+            </div>
+            <button id="closeSidebarBtn" class="md:hidden text-slate-400 hover:text-white p-2">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+        </div>
+
+        <!-- KPI Dashboard Rapida -->
+        <div class="px-4 py-2.5 bg-slate-50 border-b border-slate-200 shrink-0 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="text-slate-600 font-medium">Aziende visibili:</span>
+                    <span id="visibleCount" class="font-bold text-slate-900 bg-white px-2 py-0.5 rounded-md border border-slate-200">0</span>
+                    <span class="text-slate-400">su <span id="totalCount">0</span></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="quickExportCsvBtn" title="Scarica elenco filtrato in CSV per Excel" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg font-semibold flex items-center gap-1 shadow-xs transition">
+                        <i class="fa-solid fa-file-export text-[10px]"></i> Esporta CSV
+                    </button>
+                    <button id="resetFiltersBtn" class="text-sky-600 hover:text-sky-700 font-medium flex items-center gap-1 transition">
+                        <i class="fa-solid fa-rotate-left text-[11px]"></i> Reset
+                    </button>
+                </div>
+            </div>
+            <!-- Mini KPI Consumi -->
+            <div class="grid grid-cols-3 gap-1.5 text-[10px]">
+                <div class="bg-white border border-slate-200/80 rounded-lg px-2 py-1 flex items-center justify-between">
+                    <span class="text-slate-500">Criogenico:</span>
+                    <strong id="kpiCryoCount" class="text-indigo-700">0</strong>
+                </div>
+                <div class="bg-white border border-slate-200/80 rounded-lg px-2 py-1 flex items-center justify-between">
+                    <span class="text-slate-500">Pacchi Bomb.:</span>
+                    <strong id="kpiBundleCount" class="text-sky-700">0</strong>
+                </div>
+                <div class="bg-white border border-slate-200/80 rounded-lg px-2 py-1 flex items-center justify-between">
+                    <span class="text-slate-500">Bombole:</span>
+                    <strong id="kpiCylinderCount" class="text-emerald-700">0</strong>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs di Navigazione Sidebar -->
+        <div class="flex border-b border-slate-200 bg-white text-xs font-semibold shrink-0">
+            <button class="tab-btn flex-1 py-3 px-2 border-b-2 border-sky-600 text-sky-600 flex items-center justify-center gap-1.5" data-tab="filters">
+                <i class="fa-solid fa-compass"></i> Esplora
+            </button>
+            <button class="tab-btn flex-1 py-3 px-2 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1.5" data-tab="overpass">
+                <i class="fa-solid fa-satellite-dish"></i> Live OSM
+            </button>
+            <button class="tab-btn flex-1 py-3 px-2 border-b-2 border-transparent text-slate-500 hover:text-slate-800 flex items-center justify-center gap-1.5" data-tab="import">
+                <i class="fa-solid fa-file-csv"></i> Import / Export
+            </button>
+        </div>
+
+        <!-- Contenuto Scrollabile Sidebar -->
+        <div class="flex-1 overflow-y-auto p-4 space-y-5">
+
+            <!-- TAB 1: ESPLORA & FILTRI ATECO -->
+            <div id="tab-filters" class="tab-content space-y-4">
+                
+                <!-- Ricerca Testuale Intensiva -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">Ricerca rapida multi-termine</label>
+                        <button id="sidebarDeepOsmBtn" class="text-[11px] text-sky-600 hover:text-sky-700 font-semibold flex items-center gap-1">
+                            <i class="fa-solid fa-satellite-dish text-[10px]"></i> + Scansiona OSM
+                        </button>
+                    </div>
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                        <input type="text" id="searchInput" placeholder="Es. 'laser prato', '25.62 azoto', 'yacht viareggio'..." 
+                               class="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition">
+                        <button id="clearSearchBtn" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                            <i class="fa-solid fa-circle-xmark"></i>
+                        </button>
+                    </div>
+                    <!-- Chip di ricerca rapida -->
+                    <div class="flex flex-wrap gap-1 mt-1.5">
+                        <button type="button" id="focusGrSiChip" class="px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded-md text-[10px] font-bold transition">★ Focus GR + SI</button>
+                        <button type="button" class="quick-search-chip px-2 py-0.5 bg-slate-100 hover:bg-sky-100 hover:text-sky-800 text-slate-600 rounded-md text-[10px] font-medium transition" data-query="taglio laser">Taglio Laser</button>
+                        <button type="button" class="quick-search-chip px-2 py-0.5 bg-slate-100 hover:bg-sky-100 hover:text-sky-800 text-slate-600 rounded-md text-[10px] font-medium transition" data-query="25.62">ATECO 25.62</button>
+                        <button type="button" class="quick-search-chip px-2 py-0.5 bg-slate-100 hover:bg-sky-100 hover:text-sky-800 text-slate-600 rounded-md text-[10px] font-medium transition" data-query="azoto n5.0">Azoto N5.0</button>
+                        <button type="button" class="quick-search-chip px-2 py-0.5 bg-slate-100 hover:bg-sky-100 hover:text-sky-800 text-slate-600 rounded-md text-[10px] font-medium transition" data-query="criogenico">Criogenico</button>
+                        <button type="button" class="quick-search-chip px-2 py-0.5 bg-slate-100 hover:bg-sky-100 hover:text-sky-800 text-slate-600 rounded-md text-[10px] font-medium transition" data-query="vino">Enologia</button>
+                    </div>
+                </div>
+
+                <!-- Filtri Affiancati: Provincia, Gas e Fornitura -->
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Provincia</label>
+                        <select id="provinceFilter" class="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-sky-500">
+                            <option value="ALL">Tutte (10 Prov.)</option>
+                            <option value="GR_SI">★ Grosseto + Siena (GR+SI)</option>
+                            <option value="GR">Grosseto (GR)</option>
+                            <option value="SI">Siena (SI)</option>
+                            <option value="FI">Firenze (FI)</option>
+                            <option value="LU">Lucca (LU)</option>
+                            <option value="LI">Livorno (LI)</option>
+                            <option value="PI">Pisa (PI)</option>
+                            <option value="PT">Pistoia (PT)</option>
+                            <option value="PO">Prato (PO)</option>
+                            <option value="AR">Arezzo (AR)</option>
+                            <option value="MS">Massa-Carrara (MS)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Gas Tecnico</label>
+                        <select id="gasFilter" class="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-sky-500">
+                            <option value="ALL">Tutti i gas</option>
+                            <option value="azoto">Azoto (N2 / N5.0)</option>
+                            <option value="argon">Argon / Miscele</option>
+                            <option value="ossigeno">Ossigeno (O2)</option>
+                            <option value="co2">Anidride Carb. (CO2)</option>
+                            <option value="elio">Elio / Idrogeno</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wider mb-1">Profilo Fornitura / Stoccaggio</label>
+                        <select id="profileFilter" class="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-sky-500">
+                            <option value="ALL">Tutte le tipologie di fornitura</option>
+                            <option value="criogenico">Serbatoio Criogenico Fisso (Alto consumo)</option>
+                            <option value="pacchi">Pacchi Bombole (Consumo medio-alto)</option>
+                            <option value="bombole">Bombole Singole / Gas Puri</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Categorie ATECO -->
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Settori & Codici ATECO</span>
+                        <button id="toggleAllAtecoBtn" class="text-[11px] text-sky-600 hover:underline font-medium">Deseleziona tutti</button>
+                    </div>
+                    <div id="atecoFiltersContainer" class="space-y-1.5">
+                        <!-- Popolato dinamicamente da JS -->
+                    </div>
+                </div>
+
+                <!-- Elenco Risultati Filtrati -->
+                <div class="pt-2 border-t border-slate-200">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Elenco Aziende Selezionate</span>
+                        <span class="text-[10px] text-slate-400">Clicca per centrare</span>
+                    </div>
+                    <div id="companyListContainer" class="space-y-2">
+                        <!-- Popolato dinamicamente da JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: INTERROGAZIONE LIVE OPENSTREETMAP (OVERPASS API) -->
+            <div id="tab-overpass" class="tab-content hidden space-y-4">
+                <div class="p-3 bg-sky-50 border border-sky-200 rounded-xl text-xs text-sky-900 leading-relaxed">
+                    <div class="font-bold flex items-center gap-1.5 mb-1">
+                        <i class="fa-solid fa-circle-nodes text-sky-600"></i> Estrazione Live da OpenStreetMap
+                    </div>
+                    Interroga in tempo reale i nodi industriali, le officine di carpenteria, i cantieri navali e le cantine mappati su OSM in Toscana.
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">1. Seleziona Area Target</label>
+                    <select id="overpassProvince" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-500">
+                        <option value="GR_SI">★ Grosseto + Siena (Scansione Intensiva Sud Toscana)</option>
+                        <option value="Grosseto">Grosseto (GR - Maremma, Scarlino, Argentario)</option>
+                        <option value="Siena">Siena (SI - Valdelsa, Siena, Valdichiana, Amiata)</option>
+                        <option value="ALL_TUSCANY">Tutta la Toscana (Scansione Regionale)</option>
+                        <option value="Firenze">Firenze</option>
+                        <option value="Lucca">Lucca</option>
+                        <option value="Livorno">Livorno</option>
+                        <option value="Pisa">Pisa</option>
+                        <option value="Pistoia">Pistoia</option>
+                        <option value="Prato">Prato</option>
+                        <option value="Arezzo">Arezzo</option>
+                        <option value="Massa-Carrara">Massa-Carrara</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">2. Tipologia Struttura OSM / ATECO</label>
+                    <select id="overpassCategory" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-sky-500">
+                        <option value="all_gas_users">★ Tutte le attività utilizzatrici di Gas Tecnici (Multi-settore)</option>
+                        <option value="metal">Carpenteria, Fabbro & Metalmeccanica (ATECO 25.11/25.62)</option>
+                        <option value="shipyard">Cantieri Navali & Nautica (ATECO 30.11)</option>
+                        <option value="winery">Cantine Vinicole & Imbottigliamento (ATECO 11.02)</option>
+                        <option value="industrial_zone">Aree e Stabilimenti Industriali (Manifattura)</option>
+                    </select>
+                </div>
+
+                <button id="runOverpassBtn" class="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-xl text-sm shadow-sm flex items-center justify-center gap-2 transition">
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                    <span>Avvia Ricerca Intensiva OSM</span>
+                </button>
+
+                <div id="overpassStatus" class="hidden p-3 rounded-xl text-xs border"></div>
+
+                <div class="pt-3 border-t border-slate-200 flex items-center justify-between">
+                    <span class="text-xs text-slate-500">Nodi OSM caricati: <strong id="osmCount" class="text-slate-800">0</strong></span>
+                    <button id="clearOsmBtn" class="text-xs text-rose-600 hover:underline font-medium">Rimuovi nodi OSM</button>
+                </div>
+            </div>
+
+            <!-- TAB 3: IMPORT CSV / EXPORT -->
+            <div id="tab-import" class="tab-content hidden space-y-5">
+                
+                <!-- Sezione Import CSV -->
+                <div class="space-y-3">
+                    <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-upload text-sky-600"></i> Importa CSV (Registro Imprese / Cerved)
+                    </h3>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                        Carica un file <code class="bg-slate-100 px-1 rounded">.csv</code> (separato da <code class="bg-slate-100 px-1 rounded">;</code> o <code class="bg-slate-100 px-1 rounded">,</code>) con colonne: <strong>Nome, Comune, Indirizzo, ATECO</strong>. Geocodifica tramite Photon Komoot con fallback offline immediato per tutti i comuni toscani.
+                    </p>
+                    
+                    <div class="flex items-center gap-2">
+                        <label class="flex-1 cursor-pointer bg-slate-50 hover:bg-slate-100 border-2 border-dashed border-slate-300 rounded-xl p-4 text-center transition">
+                            <i class="fa-solid fa-file-csv text-2xl text-slate-400 mb-1"></i>
+                            <div class="text-xs font-semibold text-slate-700">Seleziona file CSV</div>
+                            <div class="text-[11px] text-slate-400 mt-0.5">Fino a 100 righe per importazione</div>
+                            <input type="file" id="csvFileInput" accept=".csv,.txt" class="hidden">
+                        </label>
+                    </div>
+
+                    <button id="downloadTemplateBtn" class="w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium rounded-xl text-xs flex items-center justify-center gap-1.5 transition">
+                        <i class="fa-solid fa-download"></i> Scarica CSV di esempio pronto all'uso
+                    </button>
+
+                    <!-- Barra di avanzamento geocodifica -->
+                    <div id="geocodeProgressBox" class="hidden p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
+                        <div class="flex justify-between text-xs font-medium text-amber-900">
+                            <span id="geocodeStatusText">Geocodifica in corso...</span>
+                            <span id="geocodeCounter">0/0</span>
+                        </div>
+                        <div class="w-full bg-amber-200 rounded-full h-2 overflow-hidden">
+                            <div id="geocodeProgressBar" class="bg-amber-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sezione Export Dati -->
+                <div class="pt-4 border-t border-slate-200 space-y-3">
+                    <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-export text-emerald-600"></i> Esporta Selezione Corrente
+                    </h3>
+                    <p class="text-xs text-slate-600">
+                        Scarica o copia le aziende attualmente filtrate sulla mappa complete di coordinate geografiche, codice ATECO, profilo consumo e gas tecnici.
+                    </p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button id="exportCsvBtn" class="py-2.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
+                            <i class="fa-solid fa-file-csv"></i> Esporta CSV
+                        </button>
+                        <button id="exportGeoJsonBtn" class="py-2.5 px-3 bg-slate-800 hover:bg-slate-900 text-white font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-sm transition">
+                            <i class="fa-solid fa-globe"></i> Esporta GeoJSON
+                        </button>
+                    </div>
+                    <button id="copyTableBtn" class="w-full py-2 px-3 bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 font-semibold rounded-xl text-xs flex items-center justify-center gap-1.5 transition">
+                        <i class="fa-solid fa-copy"></i> Copia Tabella negli Appunti (per Excel / Fogli)
+                    </button>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Footer Sidebar -->
+        <div class="p-3 bg-slate-50 border-t border-slate-200 text-[11px] text-slate-500 flex items-center justify-between shrink-0">
+            <span class="flex items-center gap-1"><i class="fa-solid fa-shield-check text-emerald-600"></i> Motore Cartografico Autonomo</span>
+            <button id="fitBoundsBtn" class="text-slate-700 hover:text-sky-600 font-semibold flex items-center gap-1">
+                <i class="fa-solid fa-expand"></i> Centra Toscana
+            </button>
+        </div>
+    </aside>
+
+    <!-- AREA MAPPA A SCHERMO INTERO -->
+    <main id="mapMainArea" class="main-area flex-1 relative h-screen w-full min-h-[400px] bg-blue-100 overflow-hidden">
+        <div id="map"></div>
+
+        <!-- Barra Azioni Rapide sulla Mappa (Esportazione Dati & Ricerca Intensiva) -->
+        <div class="absolute top-4 right-16 z-[950] flex flex-wrap items-center gap-2">
+            <button id="mapFocusGrSiBtn" title="Filtra e centra subito sulle province di Grosseto e Siena" class="bg-amber-500 hover:bg-amber-600 text-slate-950 px-3 py-2 rounded-xl shadow-lg border border-amber-400 text-xs font-bold flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-location-crosshairs"></i>
+                <span>Focus GR + SI</span>
+            </button>
+            <button id="mapDeepOsmBtn" title="Estrai nuovi nodi industriali reali da OpenStreetMap" class="bg-slate-900/95 hover:bg-slate-800 text-white px-3 py-2 rounded-xl shadow-lg border border-slate-700 text-xs font-semibold flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-satellite-dish text-sky-400"></i>
+                <span class="hidden sm:inline">Ricerca Live OSM</span>
+            </button>
+            <div class="flex items-center bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl shadow-lg p-1 gap-1">
+                <button id="mapExportCsvBtn" title="Scarica file CSV (Excel)" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition">
+                    <i class="fa-solid fa-download"></i>
+                    <span>Esporta Dati</span>
+                </button>
+                <button id="mapExportGeoJsonBtn" title="Scarica tracciato GeoJSON per GIS/QGIS" class="hover:bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition">
+                    <i class="fa-solid fa-globe text-sky-600"></i>
+                    <span class="hidden md:inline">GeoJSON</span>
+                </button>
+                <button id="mapCopyDataBtn" title="Copia tabella negli appunti" class="hover:bg-slate-100 text-slate-700 px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition">
+                    <i class="fa-solid fa-copy text-slate-500"></i>
+                    <span class="hidden lg:inline">Copia</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Controlli Zoom Nativi (sempre visibili anche se CDN Leaflet è bloccato) -->
+        <div class="absolute top-4 right-4 z-[950] flex flex-col gap-1.5 bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl shadow-lg p-1.5">
+            <button id="zoomInBtn" title="Zoom Avanti" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-700 font-bold text-base flex items-center justify-center transition">+</button>
+            <div class="h-px bg-slate-200 mx-1"></div>
+            <button id="zoomOutBtn" title="Zoom Indietro" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-700 font-bold text-base flex items-center justify-center transition">−</button>
+            <div class="h-px bg-slate-200 mx-1"></div>
+            <button id="resetViewBtn" title="Centra Toscana" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-sky-600 text-xs flex items-center justify-center transition">
+                <i class="fa-solid fa-crosshairs"></i>
+            </button>
+        </div>
+
+        <!-- Popup Scheda Aziendale Natico (sempre funzionante) -->
+        <div id="companyDetailCard" class="hidden absolute top-4 left-4 z-[960] w-[320px] max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden transition-all">
+            <button id="closeDetailCardBtn" class="absolute top-2.5 right-2.5 w-7 h-7 rounded-full bg-black/25 hover:bg-black/40 text-white flex items-center justify-center text-sm transition z-10">✕</button>
+            <div id="companyDetailContent"></div>
+        </div>
+
+        <!-- Legenda Flottante in basso a sinistra sulla mappa -->
+        <div id="mapLegend" class="hidden sm:block absolute bottom-6 left-4 z-[900] bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl shadow-lg p-3 max-w-xs">
+            <div class="text-[11px] font-bold uppercase tracking-wider text-slate-700 mb-2 flex items-center justify-between">
+                <span>Legenda Settori ATECO</span>
+                <i class="fa-solid fa-layer-group text-slate-400"></i>
+            </div>
+            <div id="legendItems" class="grid grid-cols-1 gap-1.5 text-xs">
+                <!-- Popolato da JS -->
+            </div>
+        </div>
+    </main>
+
+    <script>
+        /**
+         * MOTORE CARTOGRAFICO VETTORIALE AUTONOMO (ZERO DIPENDENZE ESTERNE PER IL RENDERING)
+         * Garantisce funzionamento immediato della mappa, pan/zoom fluido, cluster e schede popup
+         * anche quando gli script CDN (Leaflet/Tailwind) o i tile server sono bloccati dall'ambiente.
+         */
+        const toscanaCenter = [43.48, 11.15];
+
+        const TUSCANY_VECTOR_DATA = {
+            provinces: [
+                {
+                    code: 'MS', name: 'Massa-Carrara', capLat: 44.0355, capLng: 10.1395, fill: '#f8fafc',
+                    coords: [[44.45, 9.88], [44.36, 10.16], [44.20, 10.26], [44.02, 10.18], [43.99, 10.12], [44.08, 10.01], [44.22, 9.91], [44.36, 9.85]]
+                },
+                {
+                    code: 'LU', name: 'Lucca', capLat: 43.8429, capLng: 10.5027, fill: '#f1f5f9',
+                    coords: [[44.20, 10.26], [44.24, 10.48], [44.11, 10.63], [43.95, 10.68], [43.81, 10.70], [43.78, 10.52], [43.82, 10.26], [43.99, 10.12], [44.02, 10.18]]
+                },
+                {
+                    code: 'PT', name: 'Pistoia', capLat: 43.9303, capLng: 10.9078, fill: '#f8fafc',
+                    coords: [[44.11, 10.63], [44.14, 10.92], [44.03, 11.05], [43.84, 11.03], [43.81, 10.70], [43.95, 10.68]]
+                },
+                {
+                    code: 'PO', name: 'Prato', capLat: 43.8777, capLng: 11.1022, fill: '#f1f5f9',
+                    coords: [[44.14, 10.92], [44.13, 11.16], [43.96, 11.18], [43.80, 11.11], [43.84, 11.03], [44.03, 11.05]]
+                },
+                {
+                    code: 'FI', name: 'Firenze', capLat: 43.7696, capLng: 11.2558, fill: '#f8fafc',
+                    coords: [[44.13, 11.16], [44.22, 11.45], [44.05, 11.72], [43.82, 11.68], [43.55, 11.52], [43.53, 11.22], [43.58, 10.92], [43.76, 10.86], [43.81, 10.70], [43.84, 11.03], [43.80, 11.11], [43.96, 11.18]]
+                },
+                {
+                    code: 'AR', name: 'Arezzo', capLat: 43.4633, capLng: 11.8796, fill: '#f1f5f9',
+                    coords: [[43.82, 11.68], [43.85, 12.15], [43.62, 12.24], [43.30, 12.12], [43.18, 11.88], [43.32, 11.62], [43.55, 11.52]]
+                },
+                {
+                    code: 'PI', name: 'Pisa', capLat: 43.7228, capLng: 10.4017, fill: '#f8fafc',
+                    coords: [[43.82, 10.26], [43.78, 10.52], [43.81, 10.70], [43.76, 10.86], [43.58, 10.92], [43.32, 10.96], [43.18, 10.76], [43.32, 10.52], [43.56, 10.48], [43.64, 10.29]]
+                },
+                {
+                    code: 'LI', name: 'Livorno', capLat: 43.5485, capLng: 10.3106, fill: '#f1f5f9',
+                    coords: [[43.64, 10.29], [43.56, 10.48], [43.32, 10.52], [43.18, 10.76], [42.92, 10.68], [42.91, 10.51], [43.15, 10.53], [43.38, 10.41], [43.55, 10.29]]
+                },
+                {
+                    code: 'SI', name: 'Siena', capLat: 43.3188, capLng: 11.3308, fill: '#f8fafc',
+                    coords: [[43.58, 10.92], [43.53, 11.22], [43.55, 11.52], [43.32, 11.62], [43.18, 11.88], [42.92, 11.92], [42.82, 11.62], [42.98, 11.22], [43.18, 11.02], [43.32, 10.96]]
+                },
+                {
+                    code: 'GR', name: 'Grosseto', capLat: 42.7635, capLng: 11.1124, fill: '#f1f5f9',
+                    coords: [[43.18, 10.76], [43.32, 10.96], [43.18, 11.02], [42.98, 11.22], [42.82, 11.62], [42.65, 11.68], [42.38, 11.42], [42.42, 11.10], [42.65, 10.98], [42.78, 10.82], [42.92, 10.68]]
+                }
+            ],
+            islands: [
+                { name: 'Isola d\'Elba', coords: [[42.82, 10.12], [42.86, 10.35], [42.78, 10.44], [42.72, 10.36], [42.74, 10.14]] },
+                { name: 'Isola del Giglio', coords: [[42.39, 10.88], [42.39, 10.93], [42.32, 10.93], [42.32, 10.88]] },
+                { name: 'Capraia', coords: [[43.06, 9.80], [43.06, 9.85], [43.00, 9.84], [43.00, 9.80]] },
+                { name: 'Gorgona', coords: [[43.44, 9.89], [43.44, 9.91], [43.42, 9.91], [43.42, 9.89]] },
+                { name: 'Pianosa', coords: [[42.60, 10.06], [42.60, 10.10], [42.56, 10.09], [42.57, 10.06]] },
+                { name: 'Montecristo', coords: [[42.34, 10.30], [42.34, 10.33], [42.31, 10.33], [42.31, 10.30]] }
+            ],
+            highways: [
+                { name: 'A1', coords: [[44.14, 11.22], [43.86, 11.17], [43.76, 11.22], [43.62, 11.47], [43.48, 11.75], [43.25, 11.83], [43.02, 11.94]] },
+                { name: 'A11', coords: [[43.80, 11.21], [43.85, 11.11], [43.91, 10.92], [43.87, 10.75], [43.83, 10.52], [43.85, 10.30]] },
+                { name: 'A12 / SS1', coords: [[44.06, 10.04], [43.87, 10.26], [43.68, 10.32], [43.54, 10.33], [43.35, 10.45], [43.12, 10.56], [42.93, 10.75], [42.78, 11.10], [42.45, 11.22]] },
+                { name: 'FI-PI-LI', coords: [[43.77, 11.19], [43.73, 11.01], [43.71, 10.93], [43.67, 10.78], [43.66, 10.63], [43.68, 10.45], [43.56, 10.33]] },
+                { name: 'E45', coords: [[43.80, 12.06], [43.68, 12.08], [43.57, 12.14]] }
+            ],
+            rivers: [
+                { name: 'Fiume Arno', coords: [[43.85, 11.68], [43.74, 11.78], [43.62, 11.76], [43.54, 11.55], [43.76, 11.43], [43.77, 11.25], [43.74, 11.02], [43.70, 10.78], [43.68, 10.55], [43.71, 10.40], [43.68, 10.28]] },
+                { name: 'Fiume Ombrone', coords: [[43.35, 11.45], [43.12, 11.38], [42.92, 11.28], [42.78, 11.12], [42.66, 11.01]] }
+            ]
+        };
+
+        /**
+         * DEFINIZIONE MACRO-CATEGORIE ATECO, DIZIONARIO GEOGRAFICO TOSCANA E DATASET AZIENDE
+         */
+        const ATECO_CATEGORIES = {
+            '25': {
+                id: '25',
+                name: 'Carpenteria, Taglio Laser & Meccanica',
+                codeLabel: '25.11 / 25.62 / 25.61',
+                color: '#0284c7',
+                icon: 'fa-fire-burner',
+                defaultProfile: 'Pacchi bombole',
+                defaultGases: 'Azoto N5.0 (taglio laser), Miscele Ar/CO2, Argon, Ossigeno',
+                defaultApp: 'Taglio laser fibra/CO2, saldatura MIG/TIG, trattamenti termici'
+            },
+            '28': {
+                id: '28',
+                name: 'Macchinari, Impianti & Automotive',
+                codeLabel: '28.xx / 29.xx',
+                color: '#2563eb',
+                icon: 'fa-gears',
+                defaultProfile: 'Pacchi bombole',
+                defaultGases: 'Miscele Argon/CO2, Argon puro, Azoto, Ossigeno',
+                defaultApp: 'Saldatura telai e carpenteria medio-pesante, collaudi in pressione'
+            },
+            '30': {
+                id: '30',
+                name: 'Cantieristica Navale & Trasporti',
+                codeLabel: '30.11 / 30.20',
+                color: '#0d9488',
+                icon: 'fa-ship',
+                defaultProfile: 'Serbatoio criogenico',
+                defaultGases: 'Argon puro, Miscele Ar/He, Ossigeno, Acetilene',
+                defaultApp: 'Saldatura TIG/MIG su alluminio e acciaio inox per yacht e treni'
+            },
+            '24': {
+                id: '24',
+                name: 'Siderurgia, Fonderie & Metallurgia',
+                codeLabel: '24.10 / 24.51 / 24.53',
+                color: '#d97706',
+                icon: 'fa-industry',
+                defaultProfile: 'Serbatoio criogenico',
+                defaultGases: 'Ossigeno, Azoto, Argon, Idrogeno',
+                defaultApp: 'Ossi-combustione, degasaggio metalli fusi, ricottura in atmosfera'
+            },
+            '21': {
+                id: '21',
+                name: 'Farmaceutico & Chimica di Base',
+                codeLabel: '21.10 / 21.20 / 20.13',
+                color: '#7c3aed',
+                icon: 'fa-flask-vial',
+                defaultProfile: 'Serbatoio criogenico',
+                defaultGases: 'Azoto liquido e gassoso, Elio, Idrogeno, Gas puri',
+                defaultApp: 'Inertizzazione reattori, crioconservazione, gas cromatografia'
+            },
+            '17': {
+                id: '17',
+                name: 'Cartario & Vetro Industriale',
+                codeLabel: '17.12 / 23.11 / 23.13',
+                color: '#db2777',
+                icon: 'fa-scroll',
+                defaultProfile: 'Serbatoio criogenico',
+                defaultGases: 'Ossigeno, CO2, Azoto, Idrogeno',
+                defaultApp: 'Controllo pH acque cartiera, combustione ossi-combustibile forni vetro'
+            },
+            '11': {
+                id: '11',
+                name: 'Enologia & Agroalimentare ATM',
+                codeLabel: '11.02 / 10.13 / 10.51',
+                color: '#16a34a',
+                icon: 'fa-wine-bottle',
+                defaultProfile: 'Pacchi bombole',
+                defaultGases: 'Azoto alimentare (E941), CO2 (E290), Argon, Miscele ATM',
+                defaultApp: 'Inertizzazione vasche vino, imbottigliamento, confezionamento ATM'
+            },
+            'OSM': {
+                id: 'OSM',
+                name: 'Nodi Live OpenStreetMap',
+                codeLabel: 'OSM Live Query',
+                color: '#475569',
+                icon: 'fa-satellite-dish',
+                defaultProfile: 'Pacchi bombole',
+                defaultGases: 'Miscele saldatura, Azoto, Ossigeno, CO2',
+                defaultApp: 'Sito estratto in tempo reale da OpenStreetMap'
+            }
+        };
+
+        const TUSCANY_GEO_LOOKUP = {
+            'firenze': [43.7696, 11.2558, 'FI'], 'sesto fiorentino': [43.8315, 11.1982, 'FI'],
+            'calenzano': [43.8617, 11.1636, 'FI'], 'campi bisenzio': [43.8256, 11.1325, 'FI'],
+            'scandicci': [43.7538, 11.1892, 'FI'], 'empoli': [43.7196, 10.9463, 'FI'],
+            'castelfiorentino': [43.6067, 10.9692, 'FI'], 'san casciano in val di pesa': [43.6572, 11.1856, 'FI'],
+            'greve in chianti': [43.5844, 11.3164, 'FI'], 'figline e incisa valdarno': [43.6194, 11.4728, 'FI'],
+            'capraia e limite': [43.7442, 10.9856, 'FI'], 'vinci': [43.7844, 10.9253, 'FI'],
+            'lucca': [43.8429, 10.5027, 'LU'], 'capannori': [43.8414, 10.5736, 'LU'],
+            'altopascio': [43.8161, 10.6744, 'LU'], 'porcari': [43.8436, 10.6192, 'LU'],
+            'viareggio': [43.8667, 10.2500, 'LU'], 'barga': [44.0736, 10.4814, 'LU'],
+            'livorno': [43.5485, 10.3106, 'LI'], 'collesalvetti': [43.5889, 10.4767, 'LI'],
+            'guasticce': [43.5750, 10.4150, 'LI'], 'rosignano marittimo': [43.3917, 10.4436, 'LI'],
+            'piombino': [42.9336, 10.5275, 'LI'], 'castagneto carducci': [43.1614, 10.6064, 'LI'],
+            'pisa': [43.7228, 10.4017, 'PI'], 'pontedera': [43.6625, 10.6328, 'PI'],
+            'cascina': [43.6792, 10.5014, 'PI'], 'san miniato': [43.6806, 10.8511, 'PI'],
+            'fauglia': [43.5722, 10.5167, 'PI'], 'ponsacco': [43.6214, 10.6292, 'PI'],
+            'pistoia': [43.9303, 10.9078, 'PT'], 'montecatini terme': [43.8825, 10.7714, 'PT'],
+            'agliana': [43.9036, 11.0014, 'PT'], 'quarrata': [43.8486, 10.9825, 'PT'],
+            'prato': [43.8777, 11.1022, 'PO'], 'montemurlo': [43.9267, 11.0414, 'PO'],
+            'arezzo': [43.4633, 11.8796, 'AR'], 'san giovanni valdarno': [43.5653, 11.5314, 'AR'],
+            'montevarchi': [43.5236, 11.5681, 'AR'], 'terranuova bracciolini': [43.5536, 11.5886, 'AR'],
+            'sansepolcro': [43.5706, 12.1414, 'AR'], 'cortona': [43.2750, 11.9856, 'AR'],
+            'siena': [43.3188, 11.3308, 'SI'], 'poggibonsi': [43.4686, 11.1486, 'SI'],
+            'colle di val d\'elsa': [43.4225, 11.1264, 'SI'], 'san gimignano': [43.4678, 11.0431, 'SI'],
+            'casole d\'elsa': [43.3414, 11.0472, 'SI'], 'montalcino': [43.0586, 11.4892, 'SI'],
+            'monteroni d\'arbia': [43.2292, 11.4214, 'SI'],
+            'grosseto': [42.7635, 11.1124, 'GR'], 'scarlino': [42.9086, 10.8514, 'GR'],
+            'follonica': [42.9236, 10.7614, 'GR'], 'massa marittima': [43.0500, 10.8886, 'GR'],
+            'monterotondo marittimo': [43.1461, 10.8556, 'GR'], 'scansano': [42.6889, 11.3347, 'GR'],
+            'roccastrada': [43.0086, 11.1681, 'GR'], 'orbetello': [42.4392, 11.2136, 'GR'],
+            'albinia': [42.5025, 11.2014, 'GR'], 'monte argentario': [42.4356, 11.1167, 'GR'],
+            'porto santo stefano': [42.4356, 11.1167, 'GR'], 'castiglione della pescaia': [42.7650, 10.8806, 'GR'],
+            'gavorrano': [42.9261, 10.9036, 'GR'], 'manciano': [42.5867, 11.5167, 'GR'],
+            'pitigliano': [42.6347, 11.6683, 'GR'], 'capalbio': [42.4536, 11.4214, 'GR'],
+            'magliano in toscana': [42.5986, 11.2925, 'GR'], 'cinigiano': [42.8906, 11.3925, 'GR'],
+            'monteriggioni': [43.3897, 11.2236, 'SI'], 'castellina in chianti': [43.4692, 11.2886, 'SI'],
+            'castelnuovo berardenga': [43.3472, 11.5036, 'SI'], 'gaiole in chianti': [43.4681, 11.4347, 'SI'],
+            'radda in chianti': [43.4867, 11.3756, 'SI'], 'sinalunga': [43.2147, 11.7375, 'SI'],
+            'torrita di siena': [43.1714, 11.7764, 'SI'], 'montepulciano': [43.0986, 11.7872, 'SI'],
+            'chiusi': [43.0156, 11.9486, 'SI'], 'piancastagnaio': [42.8514, 11.6867, 'SI'],
+            'abbadia san salvatore': [42.8806, 11.6767, 'SI'],
+            'massa': [44.0355, 10.1395, 'MS'], 'carrara': [44.0792, 10.0972, 'MS'],
+            'avenza': [44.0450, 10.0480, 'MS'], 'sovicille': [43.2806, 11.2281, 'SI'],
+            'bucine': [43.4775, 11.6156, 'AR'], 'castiglion fibocchi': [43.5289, 11.7636, 'AR'],
+            'serravalle pistoiese': [43.9061, 10.8319, 'PT'], 'chiesina uzzanese': [43.8386, 10.7161, 'PT']
+        };
+
+        let allCompanies = [
+            { id: 'tos-01', name: 'Baker Hughes - Nuovo Pignone (FI)', city: 'Firenze', province: 'FI', address: 'Via Felice Matteucci 2, Firenze', lat: 43.7915, lng: 11.2185, category: '28', ateco: '28.11.11', atecoDesc: 'Fabbricazione di turbine e compressori', gases: 'Argon, Elio, Azoto, Miscele Ar/CO2', application: 'Saldatura speciale leghe, prove tenuta elio, trattamenti termici', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-02', name: 'Eli Lilly Italia S.p.A.', city: 'Sesto Fiorentino', province: 'FI', address: 'Via Antonio Gramsci 731, Sesto Fiorentino', lat: 43.8245, lng: 11.1865, category: '21', ateco: '21.20.09', atecoDesc: 'Fabbricazione di medicinali e preparati farmaceutici', gases: 'Azoto liquido e gassoso, Elio, Gas puri', application: 'Inertizzazione linee sterili, crioconservazione, analisi', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-03', name: 'A. Menarini Industrie Farmaceutiche', city: 'Firenze', province: 'FI', address: 'Via Sette Santi 3, Firenze', lat: 43.7812, lng: 11.2815, category: '21', ateco: '21.20.09', atecoDesc: 'Fabbricazione di medicinali', gases: 'Azoto, Elio, Idrogeno, Miscele speciali', application: 'Inertizzazione reattori e laboratori controllo qualità', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-04', name: 'Laika Caravans S.p.A.', city: 'San Casciano in Val di Pesa', province: 'FI', address: 'Via Certaldese 41/A, San Casciano', lat: 43.6215, lng: 11.1585, category: '28', ateco: '29.20.00', atecoDesc: 'Fabbricazione di carrozzerie e autocaravan', gases: 'Miscele Argon/CO2, Azoto', application: 'Saldatura telai e componenti metallici', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-05', name: 'Laser Cut & Carpenteria Osmannoro', city: 'Sesto Fiorentino', province: 'FI', address: 'Via Lucchese, Z.I. Osmannoro', lat: 43.8065, lng: 11.1745, category: '25', ateco: '25.62.00', atecoDesc: 'Lavori di meccanica generale e taglio laser', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Taglio laser fibra lamiera inox e acciaio al carbonio', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-06', name: 'Officine Meccaniche Terrafino', city: 'Empoli', province: 'FI', address: 'Via di Vittorio, Z.I. Terrafino, Empoli', lat: 43.7115, lng: 10.9165, category: '25', ateco: '25.11.00', atecoDesc: 'Fabbricazione di strutture metalliche', gases: 'Miscele Argon/CO2, Ossigeno, Azoto', application: 'Carpenteria metallica pesante e taglio laser conto terzi', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-07', name: 'Vetreria Industriale Empolese', city: 'Empoli', province: 'FI', address: 'Via Valdorme, Empoli', lat: 43.7025, lng: 10.9545, category: '17', ateco: '23.13.00', atecoDesc: 'Fabbricazione di vetro cavo', gases: 'Ossigeno, Azoto, Idrogeno', application: 'Combustione ossi-combustibile forni fusori e formatura', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-08', name: 'Azimut|Benetti S.p.A. (Viareggio)', city: 'Viareggio', province: 'LU', address: 'Via Michele Coppino 104, Viareggio', lat: 43.8615, lng: 10.2445, category: '30', ateco: '30.11.01', atecoDesc: 'Cantieri navali per costruzioni metalliche', gases: 'Argon puro, Miscele Ar/He, Ossigeno, Acetilene', application: 'Saldatura TIG/MIG scafi e sovrastrutture in alluminio e acciaio', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-09', name: 'Körber Tissue S.p.A. (ex Fabio Perini)', city: 'Lucca', province: 'LU', address: 'Via per Mugnano, Lucca', lat: 43.8215, lng: 10.5145, category: '28', ateco: '28.95.00', atecoDesc: 'Fabbricazione di macchine per l\'industria della carta', gases: 'Miscele Argon/CO2, Azoto N5.0, Argon', application: 'Taglio laser e saldatura rulli e telai macchine cartarie', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-10', name: 'Toscotec S.p.A.', city: 'Capannori', province: 'LU', address: 'Viale Europa 317/F, Marlia, Capannori', lat: 43.8965, lng: 10.5565, category: '28', ateco: '28.95.00', atecoDesc: 'Fabbricazione di impianti per l\'industria cartaria', gases: 'Argon puro, Miscele Ar/CO2, Azoto', application: 'Saldatura cilindri monolucidi in acciaio e inox', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-11', name: 'Tecno Laser Altopascio', city: 'Altopascio', province: 'LU', address: 'Via del Valico, Z.I. Altopascio', lat: 43.8065, lng: 10.6845, category: '25', ateco: '25.62.00', atecoDesc: 'Lavorazioni meccaniche e taglio laser conto terzi', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Taglio laser fibra ad alta potenza su acciai legati', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-12', name: 'Lucart S.p.A. (Stabilimento Porcari)', city: 'Porcari', province: 'LU', address: 'Via Ciarpi 77, Porcari', lat: 43.8345, lng: 10.6145, category: '17', ateco: '17.12.00', atecoDesc: 'Fabbricazione di carta e cartone', gases: 'CO2, Ossigeno, Azoto', application: 'Controllo pH acque di processo e trattamento reflui', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-13', name: 'Kedrion Biopharma S.p.A.', city: 'Barga', province: 'LU', address: 'Loc. Ai Conti, Castelvecchio Pascoli, Barga', lat: 44.0785, lng: 10.4645, category: '21', ateco: '21.20.09', atecoDesc: 'Produzione plasmaderivati e biofarmaceutica', gases: 'Azoto liquido, CO2, Elio', application: 'Crioconservazione plasma, inertizzazione serbatoi', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-14', name: 'Azimut|Benetti (Cantiere Livorno)', city: 'Livorno', province: 'LI', address: 'Via Edda Fagni 1, Livorno', lat: 43.5565, lng: 10.3015, category: '30', ateco: '30.11.01', atecoDesc: 'Costruzione mega-yacht in acciaio e alluminio', gases: 'Argon, Miscele Ar/He/CO2, Ossigeno, Acetilene', application: 'Saldatura navale pesante e tubisteria inox', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-15', name: 'Liberty Magona S.r.l.', city: 'Piombino', province: 'LI', address: 'Via Portovecchio 34, Piombino', lat: 42.9365, lng: 10.5415, category: '24', ateco: '24.10.00', atecoDesc: 'Siderurgia e laminazione nastri d\'acciaio', gases: 'Azoto, Idrogeno, Argon', application: 'Atmosfera protettiva riducente nei forni di ricottura', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-16', name: 'Solvay Chimica Italia S.p.A.', city: 'Rosignano Marittimo', province: 'LI', address: 'Via Piave 6, Rosignano Solvay', lat: 43.3845, lng: 10.4365, category: '21', ateco: '20.13.09', atecoDesc: 'Fabbricazione di prodotti chimici di base', gases: 'Azoto, Ossigeno, Idrogeno, CO2', application: 'Inertizzazione impianti chimici e sintesi', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-17', name: 'Carpenteria Meccanica Guasticce', city: 'Collesalvetti', province: 'LI', address: 'Interporto Vespucci, Guasticce', lat: 43.5785, lng: 10.4115, category: '25', ateco: '25.11.00', atecoDesc: 'Fabbricazione di strutture metalliche e serbatoi', gases: 'Miscele Ar/CO2, Argon, Ossigeno', application: 'Carpenteria industriale e impiantistica portuale', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-18', name: 'Tenuta San Guido / Polo Bolgheri', city: 'Castagneto Carducci', province: 'LI', address: 'Loc. Capanne 27, Bolgheri', lat: 43.2265, lng: 10.5945, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione di vini DOC Bolgheri', gases: 'Azoto alimentare (E941), Argon, CO2', application: 'Protezione antiossidante mosti e imbottigliamento', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-19', name: 'Piaggio & C. S.p.A.', city: 'Pontedera', province: 'PI', address: 'Viale Rinaldo Piaggio 25, Pontedera', lat: 43.6585, lng: 10.6315, category: '28', ateco: '30.91.11', atecoDesc: 'Fabbricazione di motocicli e veicoli leggeri', gases: 'Miscele Argon/CO2, Azoto, Argon', application: 'Saldatura robotizzata telai e trattamenti termici', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-20', name: 'Abiogen Pharma S.p.A.', city: 'Pisa', province: 'PI', address: 'Via Meucci 36, Ospedaletto, Pisa', lat: 43.6865, lng: 10.4315, category: '21', ateco: '21.20.09', atecoDesc: 'Ricerca e produzione farmaceutica', gases: 'Azoto liquido e gassoso, Elio', application: 'Inertizzazione fiale e laboratorio analitico', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-21', name: 'Polo Taglio Laser Valdera (Gello)', city: 'Pontedera', province: 'PI', address: 'Via del Fosso Vecchio, Gello di Pontedera', lat: 43.6465, lng: 10.6115, category: '25', ateco: '25.62.00', atecoDesc: 'Taglio laser lamiera e piegatura CNC', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Taglio laser fibra ad alta pressione', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-22', name: 'Hitachi Rail STS S.p.A.', city: 'Pistoia', province: 'PT', address: 'Via Ciliegiole 110/B, Pistoia', lat: 43.9165, lng: 10.9215, category: '30', ateco: '30.20.00', atecoDesc: 'Costruzione di materiale rotabile ferroviario', gases: 'Miscele Argon/CO2, Argon puro, Ossigeno', application: 'Saldatura casse ferroviarie in alluminio e acciaio', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-23', name: 'Carpenteria Metallica Pistoiese', city: 'Agliana', province: 'PT', address: 'Via della Libertà, Z.I. Agliana', lat: 43.8965, lng: 11.0065, category: '25', ateco: '25.11.00', atecoDesc: 'Strutture metalliche e caldareria', gases: 'Miscele Ar/CO2, Ossigeno, Azoto', application: 'Saldatura strutturale e taglio termico', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-24', name: 'Meccanica & Laser Montemurlo', city: 'Montemurlo', province: 'PO', address: 'Via Oste, Z.I. Montemurlo', lat: 43.9185, lng: 11.0465, category: '25', ateco: '25.62.00', atecoDesc: 'Meccanica di precisione e taglio laser', gases: 'Azoto N5.0, Miscele Ar/CO2, Argon', application: 'Taglio laser e carpenteria per meccanotessile', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-25', name: 'Dell\'Orco & Villani S.r.l.', city: 'Capraia e Limite', province: 'FI', address: 'Via di Limite 163, Capraia e Limite', lat: 43.7485, lng: 10.9785, category: '28', ateco: '28.94.10', atecoDesc: 'Macchine per l\'industria tessile e riciclo fibre', gases: 'Miscele Ar/CO2, Azoto, Argon', application: 'Taglio laser e assemblaggio carpentiere macchine', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-26', name: 'Fimer S.p.A.', city: 'Terranuova Bracciolini', province: 'AR', address: 'Via San Giorgio 642, Terranuova Bracciolini', lat: 43.5465, lng: 11.5765, category: '28', ateco: '27.11.00', atecoDesc: 'Fabbricazione inverter e sistemi energetici', gases: 'Azoto, Miscele saldatura', application: 'Saldatura elettronica rifusione e carpenteria cabinet', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-27', name: 'Aboca S.p.A. Società Agricola', city: 'Sansepolcro', province: 'AR', address: 'Loc. Aboca 20, Sansepolcro', lat: 43.5915, lng: 12.1465, category: '21', ateco: '21.20.09', atecoDesc: 'Dispositivi medici e fitoterapici', gases: 'Azoto liquido e gassoso, CO2 supercritica', application: 'Estrazione, inertizzazione e confezionamento farmaceutico', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-28', name: 'Officine Valdarno San Zeno', city: 'Arezzo', province: 'AR', address: 'Loc. San Zeno, Z.I. Arezzo', lat: 43.4215, lng: 11.8565, category: '25', ateco: '25.62.00', atecoDesc: 'Lavorazioni meccaniche e taglio laser', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Taglio laser lamiera e carpenteria industriale', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-29', name: 'Trigano S.p.A.', city: 'San Gimignano', province: 'SI', address: 'Loc. Cusona, San Gimignano', lat: 43.4615, lng: 11.0865, category: '28', ateco: '29.20.00', atecoDesc: 'Fabbricazione autocaravan e veicoli ricreazionali', gases: 'Miscele Argon/CO2, Azoto', application: 'Saldatura componenti telaistici e sottoscocca', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-30', name: 'PR Industrial S.r.l. (Pramac)', city: 'Casole d\'Elsa', province: 'SI', address: 'Loc. Il Piano, Casole d\'Elsa', lat: 43.3565, lng: 11.0565, category: '28', ateco: '27.11.00', atecoDesc: 'Gruppi elettrogeni e macchine movimentazione', gases: 'Azoto N5.0, Miscele Argon/CO2, Ossigeno', application: 'Taglio laser cofani e saldatura basamenti metallici', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-31', name: 'Industria Farmaceutica Galenica Senese', city: 'Monteroni d\'Arbia', province: 'SI', address: 'Via Cassia Nord 351, Monteroni d\'Arbia', lat: 43.2415, lng: 11.4165, category: '21', ateco: '21.20.09', atecoDesc: 'Soluzioni parenterali e farmaci iniettabili', gases: 'Azoto gassoso e liquido', application: 'Inertizzazione linee riempimento fiale e sacche', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-32', name: 'Banfi Società Agricola S.r.l.', city: 'Montalcino', province: 'SI', address: 'Castello di Poggio alle Mura, Montalcino', lat: 43.0365, lng: 11.4365, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione Brunello di Montalcino e vini', gases: 'Azoto alimentare (E941), CO2 (E290), Argon', application: 'Inertizzazione cisterne acciaio e linee imbottigliamento', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-33', name: 'Nuova Solmine S.p.A.', city: 'Scarlino', province: 'GR', address: 'Loc. Casone, Scarlino', lat: 42.9165, lng: 10.8115, category: '21', ateco: '20.13.09', atecoDesc: 'Produzione acido solforico e chimica inorganica', gases: 'Ossigeno, Azoto, Miscele saldatura', application: 'Arricchimento ossigeno forni e manutenzione impianti', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-34', name: 'Metalmeccanica Maremmana Z.I. Nord', city: 'Grosseto', province: 'GR', address: 'Via Birmania, Z.I. Grosseto Nord', lat: 42.7865, lng: 11.1015, category: '25', ateco: '25.11.00', atecoDesc: 'Carpenteria metallica per impianti energetici e agricoli', gases: 'Miscele Ar/CO2, Ossigeno, Acetilene, Azoto', application: 'Saldatura tubazioni geotermiche e carpenteria pesante', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-35', name: 'Baker Hughes - Stabilimento Massa', city: 'Massa', province: 'MS', address: 'Via Dorsale 15, Massa', lat: 44.0265, lng: 10.1065, category: '28', ateco: '28.11.11', atecoDesc: 'Assemblaggio moduli e turbine Oil & Gas', gases: 'Argon puro, Miscele Ar/CO2, Elio, Azoto', application: 'Saldatura certificata pressure vessel e prove non distruttive', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-36', name: 'Cantieri Navali Marina di Carrara', city: 'Carrara', province: 'MS', address: 'Viale Cristoforo Colombo, Marina di Carrara', lat: 44.0365, lng: 10.0365, category: '30', ateco: '30.11.01', atecoDesc: 'Costruzione e refitting superyacht', gases: 'Argon, Miscele Ar/He, Ossigeno, Acetilene', application: 'Saldatura alluminio navale e acciai speciali', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-37', name: 'Leonardo S.p.A. (Stabilimento Campi Bisenzio)', city: 'Campi Bisenzio', province: 'FI', address: 'Via Albert Einstein 35, Campi Bisenzio', lat: 43.8295, lng: 11.1485, category: '28', ateco: '26.51.10', atecoDesc: 'Sistemi optronici, spaziali e meccanica di precisione', gases: 'Azoto N5.0, Elio, Argon puro, Gas puri', application: 'Camere pulite, brasatura sottovuoto e test criogenici', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-38', name: 'Molteni Farmaceutici S.p.A.', city: 'Scandicci', province: 'FI', address: 'Strada Statale 67, Loc. Granatieri, Scandicci', lat: 43.7585, lng: 11.1445, category: '21', ateco: '21.20.09', atecoDesc: 'Produzione farmaci e soluzioni sterili', gases: 'Azoto gassoso e liquido, Gas puri laboratorio', application: 'Inertizzazione fiale iniettabili e reattori API', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-39', name: 'Gruppo Colorobbia Italia S.p.A.', city: 'Vinci', province: 'FI', address: 'Via Pietramarina 53, Sovigliana, Vinci', lat: 43.7325, lng: 10.9285, category: '21', ateco: '20.12.00', atecoDesc: 'Pigmenti ceramici, fritte vetrose e materiali avanzati', gases: 'Ossigeno, Azoto, Idrogeno', application: 'Combustione ossi-combustibile nei forni fusori fritte', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-40', name: 'El.En. S.p.A. (Sistemi Laser)', city: 'Calenzano', province: 'FI', address: 'Via Baldanzese 17, Calenzano', lat: 43.8545, lng: 11.1685, category: '28', ateco: '28.41.00', atecoDesc: 'Costruzione sorgenti e sistemi laser industriali', gases: 'Azoto N5.0, Elio, CO2 laser, Ossigeno', application: 'Collaudo sorgenti laser fibra/CO2 e taglio lamiera', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-41', name: 'Marchesi Antinori (Cantina nel Chianti)', city: 'San Casciano in Val di Pesa', province: 'FI', address: 'Via Cassia per Siena 133, Bargino', lat: 43.6115, lng: 11.1925, category: '11', ateco: '11.02.10', atecoDesc: 'Vinificazione e imbottigliamento vini DOCG', gases: 'Azoto alimentare (E941), CO2 (E290), Argon', application: 'Inertizzazione vinificatori e saturazione bottiglie', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-42', name: 'Metallurgica Toscana Calenzano', city: 'Calenzano', province: 'FI', address: 'Via di Le Prata, Z.I. Calenzano', lat: 43.8465, lng: 11.1585, category: '25', ateco: '25.61.00', atecoDesc: 'Trattamenti termici e rivestimento metalli', gases: 'Azoto, Idrogeno, Argon, Endogas', application: 'Tempra, ricottura lucida e nitrurazione in atmosfera controllata', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-43', name: 'A.Celli Paper S.p.A.', city: 'Capannori', province: 'LU', address: 'Via Romana Ovest 212, Tassignano, Capannori', lat: 43.8385, lng: 10.5625, category: '28', ateco: '28.95.00', atecoDesc: 'Macchine ribobinatrici e impianti per tissue e nonwovens', gases: 'Miscele Argon/CO2, Argon puro, Azoto', application: 'Saldatura strutturale rulli e carpenteria di precisione', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-44', name: 'Gambini S.p.A.', city: 'Altopascio', province: 'LU', address: 'Via del Frantoio, Badia Pozzeveri, Altopascio', lat: 43.8195, lng: 10.6425, category: '28', ateco: '28.95.00', atecoDesc: 'Linee complete per la trasformazione del tissue', gases: 'Azoto N5.0, Miscele Ar/CO2, Argon', application: 'Taglio laser componenti e saldatura inox', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-45', name: 'Overmarine Group (Mangusta Yachts)', city: 'Viareggio', province: 'LU', address: 'Via Michele Coppino 114, Viareggio', lat: 43.8585, lng: 10.2485, category: '30', ateco: '30.11.01', atecoDesc: 'Costruzione maxi-yacht in metallo e composito', gases: 'Argon puro, Miscele Ar/He, Ossigeno, Acetilene', application: 'Saldatura TIG alluminio e acciai inox navali', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-46', name: 'Rossinavi - Cantieri Navali Fratelli Rossi', city: 'Viareggio', province: 'LU', address: 'Via dei Pescatori 56, Viareggio', lat: 43.8645, lng: 10.2395, category: '30', ateco: '30.11.01', atecoDesc: 'Costruzione superyacht custom in acciaio e alluminio', gases: 'Argon, Miscele Ar/He, Ossigeno', application: 'Carpenteria navale pesante e tubisteria di bordo', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-47', name: 'C.M.C. Carpenteria Metallica Capannori', city: 'Capannori', province: 'LU', address: 'Via del Frizzone, Capannori', lat: 43.8225, lng: 10.5885, category: '25', ateco: '25.11.00', atecoDesc: 'Carpenteria metallica pesante e caldareria', gases: 'Miscele Ar/CO2, Ossigeno, Azoto N5.0', application: 'Taglio plasma/laser e saldatura grandi strutture', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-48', name: 'JSW Steel Italy Piombino S.p.A.', city: 'Piombino', province: 'LI', address: 'Largo Caduti sul Lavoro 21, Piombino', lat: 42.9425, lng: 10.5515, category: '24', ateco: '24.10.00', atecoDesc: 'Laminazione rotaie, vergella e prodotti siderurgici', gases: 'Ossigeno, Azoto, Argon, Acetilene', application: 'Ossitaglio bramme, scarfatura e atmosfere forni', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-49', name: 'Kayser Italia S.r.l.', city: 'Livorno', province: 'LI', address: 'Via di Popogna 501, Livorno', lat: 43.5125, lng: 10.3485, category: '28', ateco: '30.30.09', atecoDesc: 'Ingegneria aerospaziale e sistemi per microgravità', gases: 'Azoto puro, Elio, Argon', application: 'Test tenuta elio e inertizzazione payload spaziali', profile: 'Bombole singole', source: 'curated' },
+            { id: 'tos-50', name: 'Tenuta dell\'Ornellaia S.r.l.', city: 'Castagneto Carducci', province: 'LI', address: 'Loc. Ornellaia 191, Bolgheri', lat: 43.2145, lng: 10.6025, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione vini pregiati Bolgheri DOC', gases: 'Azoto alimentare (E941), Argon, CO2', application: 'Blanketing serbatoi inox e imbottigliamento sterile', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-51', name: 'Vitesco Technologies / Continental Fauglia', city: 'Fauglia', province: 'PI', address: 'Via delle Colline 138, Fauglia', lat: 43.5755, lng: 10.5145, category: '28', ateco: '29.32.09', atecoDesc: 'Componentistica automotive e iniettori', gases: 'Azoto N5.0, Idrogeno, Elio, Argon', application: 'Saldatura laser componenti, brasatura e leak test elio', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-52', name: 'Castellani S.p.A. (Scaffalature & Taglio Laser)', city: 'Pontedera', province: 'PI', address: 'Via Lungomonte 147, Montecastello, Pontedera', lat: 43.6715, lng: 10.6585, category: '25', ateco: '25.11.00', atecoDesc: 'Arredamento industriale e lavorazione lamiera', gases: 'Azoto N5.0, Miscele Ar/CO2, Ossigeno', application: 'Taglio laser fibra ad alta velocità e saldatura robotizzata', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-53', name: 'Paoletti & Cioni Carpenteria Valdera', city: 'Ponsacco', province: 'PI', address: 'Via Valdera P., Z.I. Ponsacco', lat: 43.6245, lng: 10.6265, category: '25', ateco: '25.62.00', atecoDesc: 'Taglio laser tubi e lamiere conto terzi', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Impianti laser tubo e lamiera piana', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-54', name: 'Cutlite Penta S.r.l. (Costruttori Impianti Laser)', city: 'Prato', province: 'PO', address: 'Via Baldanzese / Via del Lazzeretto, Prato', lat: 43.8685, lng: 11.1185, category: '28', ateco: '28.41.00', atecoDesc: 'Progettazione e produzione sistemi taglio laser fibra', gases: 'Azoto N5.0, Ossigeno, Aria tecnica, Elio', application: 'Collaudo teste di taglio ad altissima potenza (fino a 30kW)', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-55', name: 'Cormatex S.r.l.', city: 'Prato', province: 'PO', address: 'Via Paronese 118, Macrolotto, Prato', lat: 43.8545, lng: 11.0845, category: '28', ateco: '28.94.10', atecoDesc: 'Macchinari tessili e linee airlay', gases: 'Miscele Ar/CO2, Azoto, Argon', application: 'Carpenteria meccanica e saldatura strutture macchine', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-56', name: 'Officine Meccaniche Macrolotto Prato', city: 'Prato', province: 'PO', address: 'Via Toscana, Macrolotto 2, Prato', lat: 43.8495, lng: 11.0765, category: '25', ateco: '25.62.00', atecoDesc: 'Taglio laser, piegatura e saldatura inox', gases: 'Azoto N5.0, Argon puro, Miscele Ar/CO2', application: 'Lavorazioni conto terzi su acciaio inox e alluminio', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-57', name: 'Officine Meccaniche Serravalle Pistoiese', city: 'Serravalle Pistoiese', province: 'PT', address: 'Via Lucchese, Masotti, Serravalle Pistoiese', lat: 43.9045, lng: 10.8365, category: '25', ateco: '25.11.00', atecoDesc: 'Carpenteria metallica e strutture ferroviarie/edili', gases: 'Miscele Ar/CO2, Ossigeno, Azoto', application: 'Saldatura strutturale certificata EN 1090', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-58', name: 'Metalmeccanica Valdinievole', city: 'Chiesina Uzzanese', province: 'PT', address: 'Via Camporcioni, Chiesina Uzzanese', lat: 43.8365, lng: 10.7185, category: '25', ateco: '25.62.00', atecoDesc: 'Taglio laser fibra e lavorazioni CNC', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Taglio laser conto terzi e assemblaggio meccanico', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-59', name: 'Safimet S.p.A. (Affinazione Metalli)', city: 'Arezzo', province: 'AR', address: 'Via del Lavoro 42, San Zeno, Arezzo', lat: 43.4185, lng: 11.8625, category: '24', ateco: '24.41.00', atecoDesc: 'Affinazione e recupero metalli preziosi e catalizzatori', gases: 'Ossigeno, Azoto, Idrogeno, Argon', application: 'Forni fusori ossi-combustibili e inertizzazione reattori', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-60', name: 'TMB S.p.A. (Fonderie & Componenti)', city: 'Terranuova Bracciolini', province: 'AR', address: 'Via Poggilupi, Terranuova Bracciolini', lat: 43.5515, lng: 11.5825, category: '24', ateco: '24.53.00', atecoDesc: 'Fusione metalli leggeri e lavorazioni meccaniche', gases: 'Azoto, Argon, Miscele saldatura', application: 'Degasaggio alluminio fuso e trattamenti termici', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-61', name: 'Lem Industries S.p.A.', city: 'Bucine', province: 'AR', address: 'Via Leo Valiani 45, Levane, Bucine', lat: 43.4885, lng: 11.6185, category: '25', ateco: '25.61.00', atecoDesc: 'Trattamenti galvanici e PVD su metalli', gases: 'Azoto puro, Argon, Idrogeno', application: 'Deposizione PVD sottovuoto e inertizzazione vasche', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-62', name: 'GSK Vaccines S.r.l. (Stabilimento Rosia)', city: 'Sovicille', province: 'SI', address: 'Via Fiorentina 1 / Loc. Bellaria, Rosia', lat: 43.2585, lng: 11.2365, category: '21', ateco: '21.20.09', atecoDesc: 'Ricerca e produzione vaccini e biofarmaci', gases: 'Azoto liquido e gassoso, CO2, Elio, Gas puri', application: 'Crioconservazione banche cellulari, fermentatori, laboratori', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-63', name: 'RCR Cristalleria Italiana S.p.A.', city: 'Colle di Val d\'Elsa', province: 'SI', address: 'Loc. Catarelli, Colle di Val d\'Elsa', lat: 43.4285, lng: 11.1245, category: '17', ateco: '23.13.00', atecoDesc: 'Produzione industriale cristallo ecologico e vetro', gases: 'Ossigeno, Azoto, Idrogeno', application: 'Combustione ossi-combustibile nei forni fusori elettrici/misti', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-64', name: 'Trigano Van S.r.l. (Valdelsa)', city: 'Poggibonsi', province: 'SI', address: 'Loc. Foci, Poggibonsi', lat: 43.4645, lng: 11.1385, category: '28', ateco: '29.20.00', atecoDesc: 'Allestimento veicoli ricreazionali e furgonati', gases: 'Miscele Argon/CO2, Azoto', application: 'Saldatura rinforzi strutturali e taglio lamiera', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-65', name: 'Venator Italy S.r.l.', city: 'Scarlino', province: 'GR', address: 'Loc. Casone, Scarlino', lat: 42.9125, lng: 10.8185, category: '21', ateco: '20.12.00', atecoDesc: 'Produzione biossido di titanio e pigmenti', gases: 'Ossigeno, Azoto, CO2', application: 'Ossidazione in reattore e inertizzazione impianti', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-66', name: 'Poli Geotermici & Carpenteria Larderello', city: 'Monterotondo Marittimo', province: 'GR', address: 'Z.I. Lago Boracifero, Monterotondo Marittimo', lat: 43.1485, lng: 10.8585, category: '25', ateco: '25.11.00', atecoDesc: 'Tubazioni inox, scambiatori e manutenzione geotermia', gases: 'Argon puro, Miscele Ar/CO2, Azoto, Ossigeno', application: 'Saldatura TIG su acciai superaustenitici e titanio', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-67', name: 'Cantina Vignaioli del Morellino di Scansano', city: 'Scansano', province: 'GR', address: 'Loc. Saragiolo, Scansano', lat: 42.6925, lng: 11.3315, category: '11', ateco: '11.02.10', atecoDesc: 'Vinificazione e imbottigliamento Morellino DOCG', gases: 'Azoto alimentare (E941), CO2 (E290)', application: 'Inertizzazione cisterne e linea imbottigliamento', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-68', name: 'Tenuta Rocca di Montemassi', city: 'Roccastrada', province: 'GR', address: 'Loc. Montemassi, Roccastrada', lat: 42.9885, lng: 11.0685, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione vitivinicola Maremma Toscana DOC', gases: 'Azoto alimentare (E941), Argon, CO2', application: 'Protezione antiossidante mosti e vino', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'tos-69', name: 'The Italian Sea Group / NCA Refit', city: 'Carrara', province: 'MS', address: 'Viale Cristoforo Colombo 4bis, Marina di Carrara', lat: 44.0345, lng: 10.0395, category: '30', ateco: '30.11.01', atecoDesc: 'Costruzione megayacht Admiral & Tecnomar', gases: 'Argon puro, Miscele Ar/He, Ossigeno, Acetilene', application: 'Saldatura TIG/MIG scafi e sovrastrutture in alluminio', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'tos-70', name: 'Carpenteria Apuana & Taglio Laser Avenza', city: 'Carrara', province: 'MS', address: 'Via Aurelia Ovest, Z.I. Avenza, Carrara', lat: 44.0465, lng: 10.0525, category: '25', ateco: '25.62.00', atecoDesc: 'Taglio laser e carpenteria per macchine lapidee', gases: 'Azoto N5.0, Miscele Ar/CO2, Ossigeno', application: 'Taglio laser lamiera pesante e saldatura telai', profile: 'Pacchi bombole', source: 'curated' },
+            // --- APPROFONDIMENTO INTENSIVO PROVINCIA DI GROSSETO (GR) ---
+            { id: 'gr-71', name: 'Taglio Laser & Carpenteria Grosseto Nord', city: 'Grosseto', province: 'GR', address: 'Via Senegal, Z.I. Grosseto Nord', lat: 42.7895, lng: 11.1065, category: '25', ateco: '25.62.00', atecoDesc: 'Taglio laser lamiera, piegatura CNC e saldatura', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Taglio laser fibra lamiera inox e acciaio al carbonio', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-72', name: 'Officine Oleodinamiche & Meccaniche Maremma', city: 'Grosseto', province: 'GR', address: 'Via Aurelia Nord, Z.I. San Martino, Grosseto', lat: 42.7965, lng: 11.0945, category: '28', ateco: '28.12.00', atecoDesc: 'Cilindri oleodinamici e macchine movimento terra/agricole', gases: 'Miscele Argon/CO2, Argon puro, Ossigeno', application: 'Saldatura robotizzata steli e camicie idrauliche', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-73', name: 'Cantiere Navale Marina di Grosseto', city: 'Grosseto', province: 'GR', address: 'Via del Mar Tirreno, Porto della Maremma', lat: 42.7215, lng: 10.9785, category: '30', ateco: '30.11.01', atecoDesc: 'Manutenzione, carpenteria navale e refitting yacht', gases: 'Argon puro, Miscele Ar/CO2, Ossigeno, Acetilene', application: 'Saldatura TIG/MIG su scafi e sovrastrutture marine', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-74', name: 'Cantieri Navali & Refit Puntone di Scarlino', city: 'Scarlino', province: 'GR', address: 'Lungomare Garibaldi, Puntone di Scarlino', lat: 42.8885, lng: 10.7885, category: '30', ateco: '30.11.01', atecoDesc: 'Cantieristica nautica e carpenteria navale in lega', gases: 'Argon puro, Miscele Ar/He, Ossigeno, Acetilene', application: 'Saldatura alluminio e acciaio inox marino', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-75', name: 'Manutenzione Impianti Chimici Casone Scarlino', city: 'Scarlino', province: 'GR', address: 'Loc. Casone, Z.I. Scarlino', lat: 42.9105, lng: 10.8245, category: '25', ateco: '25.29.00', atecoDesc: 'Caldareria, tubazioni inox e scambiatori per chimica', gases: 'Argon puro, Azoto, Miscele Ar/CO2, Ossigeno', application: 'Saldatura TIG tubazioni e prove di tenuta in pressione', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-76', name: 'Metalmeccanica & Laser Follonica Z.I.', city: 'Follonica', province: 'GR', address: 'Via dell\'Industria, Z.I. Follonica', lat: 42.9315, lng: 10.7745, category: '25', ateco: '25.62.00', atecoDesc: 'Lavorazioni meccaniche, taglio laser e serramentistica', gases: 'Azoto N5.0, Miscele Ar/CO2, Ossigeno', application: 'Taglio laser conto terzi e carpenteria leggera', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-77', name: 'Carpenteria & Impianti Massa Marittima (Valpiana)', city: 'Massa Marittima', province: 'GR', address: 'Loc. Valpiana, Z.I. Massa Marittima', lat: 42.9865, lng: 10.8485, category: '25', ateco: '25.11.00', atecoDesc: 'Strutture metalliche per geotermia ed energia', gases: 'Miscele Ar/CO2, Argon, Ossigeno, Azoto', application: 'Saldatura vaporodotti e carpenteria pesante', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-78', name: 'Cantieri Navali & Carpenteria Argentario', city: 'Monte Argentario', province: 'GR', address: 'Via del Valle / Loc. Santa Liberata, Porto S. Stefano', lat: 42.4325, lng: 11.1385, category: '30', ateco: '30.11.01', atecoDesc: 'Cantieri navali, rimessaggio e refit grandi imbarcazioni', gases: 'Argon puro, Ossigeno, Acetilene, Miscele saldatura', application: 'Saldatura eliche, assi e strutture navali in lega', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-79', name: 'Officine Meccaniche & Inox Albinia (Orbetello)', city: 'Orbetello', province: 'GR', address: 'Via Maremmana, Z.I. Albinia, Orbetello', lat: 42.5065, lng: 11.2065, category: '25', ateco: '25.29.00', atecoDesc: 'Serbatoi inox enologici, carpenteria e manutenzione', gases: 'Argon puro, Azoto, Miscele Ar/CO2', application: 'Saldatura TIG serbatoi in acciaio inox AISI 304/316', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-80', name: 'Polo Agroalimentare & Ittico Laguna di Orbetello', city: 'Orbetello', province: 'GR', address: 'Loc. Neghelli / Albinia, Orbetello', lat: 42.4485, lng: 11.2245, category: '11', ateco: '10.20.00', atecoDesc: 'Lavorazione, conservazione e confezionamento prodotti alimentari', gases: 'Azoto alimentare (E941), CO2 (E290), Miscele ATM', application: 'Confezionamento in atmosfera protettiva e abbattimento', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-81', name: 'Caseificio Sociale Manciano S.c.a.', city: 'Manciano', province: 'GR', address: 'Loc. Piano di Cirignano, Manciano', lat: 42.5685, lng: 11.4985, category: '11', ateco: '10.51.20', atecoDesc: 'Produzione Pecorino Toscano DOP e derivati del latte', gases: 'Azoto alimentare (E941), CO2 alimentare (E290)', application: 'Confezionamento formaggi porzionati in atmosfera protettiva', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-82', name: 'Fattoria Mantellassi S.r.l.', city: 'Magliano in Toscana', province: 'GR', address: 'Loc. Banditaccia, Magliano in Toscana', lat: 42.6145, lng: 11.3125, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione Morellino di Scansano DOCG e vini Maremma', gases: 'Azoto alimentare (E941), CO2 (E290), Argon', application: 'Inertizzazione vasche vino e imbottigliamento', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-83', name: 'Tenuta Monteverro S.r.l.', city: 'Capalbio', province: 'GR', address: 'Strada Provinciale Capalbio 11, Capalbio', lat: 42.4385, lng: 11.3845, category: '11', ateco: '11.02.10', atecoDesc: 'Cantina vitivinicola di alta gamma Costa Toscana', gases: 'Azoto alimentare (E941), Argon, Ghiaccio secco (CO2)', application: 'Criomacerazione uve e protezione antiossidante barrique/vasche', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-84', name: 'Cantina Cooperativa di Pitigliano', city: 'Pitigliano', province: 'GR', address: 'Via Nona, Pitigliano', lat: 42.6365, lng: 11.6745, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione Bianco di Pitigliano DOC e Sovana DOC', gases: 'Azoto alimentare (E941), CO2 (E290)', application: 'Inertizzazione serbatoi e linee di imbottigliamento', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'gr-85', name: 'ColleMassari Wine Estates (Castello ColleMassari)', city: 'Cinigiano', province: 'GR', address: 'Loc. Poggi del Sasso, Cinigiano', lat: 42.8845, lng: 11.3685, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione Montecucco DOCG e vini biologici', gases: 'Azoto alimentare (E941), Argon, CO2', application: 'Inertizzazione cantina a gravità e imbottigliamento', profile: 'Pacchi bombole', source: 'curated' },
+            // --- APPROFONDIMENTO INTENSIVO PROVINCIA DI SIENA (SI) ---
+            { id: 'si-86', name: 'Luano Camp S.r.l. (Camper Rimor)', city: 'Poggibonsi', province: 'SI', address: 'Loc. Foci / Via Piemonte, Poggibonsi', lat: 43.4715, lng: 11.1325, category: '28', ateco: '29.20.00', atecoDesc: 'Fabbricazione autocaravan e veicoli ricreazionali', gases: 'Miscele Argon/CO2, Azoto, Argon', application: 'Saldatura telai ausiliari e staffaggi metallici', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-87', name: 'Polo Taglio Laser & Carpenteria Z.I. Foci', city: 'Poggibonsi', province: 'SI', address: 'Via Toscana, Z.I. Foci, Poggibonsi', lat: 43.4685, lng: 11.1285, category: '25', ateco: '25.62.00', atecoDesc: 'Taglio laser lamiera, piegatura CNC e saldatura robotizzata', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Taglio laser fibra ad alta potenza per indotto camper e macchinari', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'si-88', name: 'Carpenteria Metallica & Macchinari Z.I. Drove', city: 'Poggibonsi', province: 'SI', address: 'Via Campania, Z.I. Drove, Poggibonsi', lat: 43.4565, lng: 11.1545, category: '25', ateco: '25.11.00', atecoDesc: 'Carpenteria strutturale e componentistica metallica', gases: 'Miscele Ar/CO2, Argon puro, Ossigeno', application: 'Saldatura MIG/TIG su acciaio al carbonio e inox', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-89', name: 'Officine Meccaniche Belvedere (Colle Val d\'Elsa)', city: 'Colle di Val d\'Elsa', province: 'SI', address: 'Loc. Belvedere / San Marziale, Colle di Val d\'Elsa', lat: 43.4345, lng: 11.1365, category: '25', ateco: '25.62.00', atecoDesc: 'Meccanica di precisione, taglio laser e lavorazioni CNC', gases: 'Azoto N5.0, Miscele Ar/CO2, Argon', application: 'Taglio laser e saldatura componenti per impianti industriali', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-90', name: 'Philogen S.p.A. (Polo Biotech Senese)', city: 'Sovicille', province: 'SI', address: 'Loc. Bellaria, Rosia, Sovicille', lat: 43.2615, lng: 11.2425, category: '21', ateco: '21.10.00', atecoDesc: 'Ricerca biotecnologica e produzione biofarmaci', gases: 'Azoto liquido, CO2 grado farmaceutico, Elio', application: 'Crioconservazione cellulare, incubatori e laboratori', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'si-91', name: 'Diesse Diagnostica Senese S.p.A.', city: 'Monteriggioni', province: 'SI', address: 'Via delle Rose 10, Loc. San Martino, Monteriggioni', lat: 43.3745, lng: 11.2465, category: '21', ateco: '21.20.09', atecoDesc: 'Sistemi diagnostici in vitro e reagenti', gases: 'Azoto gassoso e liquido, Gas puri laboratorio', application: 'Inertizzazione linee reagenti e controllo qualità', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-92', name: 'Fondazione Toscana Life Sciences (Polo Siena)', city: 'Siena', province: 'SI', address: 'Strada del Petriccio e Belriguardo 35, Siena', lat: 43.3365, lng: 11.3185, category: '21', ateco: '72.11.00', atecoDesc: 'Incubatore ricerca scienze della vita e laboratori biotech', gases: 'Azoto liquido, CO2 pura, Elio, Gas speciali', application: 'Criobanche biologiche, spettrometria di massa e colture', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'si-93', name: 'Frescobaldi - Tenuta CastelGiocondo', city: 'Montalcino', province: 'SI', address: 'Loc. CastelGiocondo, Montalcino', lat: 43.0465, lng: 11.4225, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione Brunello di Montalcino DOCG', gases: 'Azoto alimentare (E941), CO2 (E290), Argon', application: 'Protezione antiossidante mosti e imbottigliamento', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-94', name: 'Casanova di Neri S.r.l.', city: 'Montalcino', province: 'SI', address: 'Podere Fiesole, Montalcino', lat: 43.0645, lng: 11.5025, category: '11', ateco: '11.02.10', atecoDesc: 'Vinificazione e affinamento Brunello di Montalcino', gases: 'Azoto alimentare (E941), Argon', application: 'Inertizzazione vasche inox e saturazione bottiglie', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-95', name: 'Vecchia Cantina di Montepulciano S.c.a.', city: 'Montepulciano', province: 'SI', address: 'Via Provinciale 7, Montepulciano', lat: 43.1045, lng: 11.7985, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione Vino Nobile di Montepulciano DOCG', gases: 'Azoto alimentare (E941), CO2 (E290), Argon', application: 'Inertizzazione grandi cisterne e linee imbottigliamento', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'si-96', name: 'Avignonesi S.r.l. Società Agricola', city: 'Montepulciano', province: 'SI', address: 'Via Colonica 1, Loc. Valiano, Montepulciano', lat: 43.1365, lng: 11.8845, category: '11', ateco: '11.02.10', atecoDesc: 'Produzione vitivinicola biologica e biodinamica', gases: 'Azoto alimentare (E941), Argon, CO2', application: 'Inertizzazione vasche e protezione antiossidante', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-97', name: 'Ruffino S.r.l. - Tenute del Chianti Classico', city: 'Castellina in Chianti', province: 'SI', address: 'Loc. Gretole / Santedame, Castellina in Chianti', lat: 43.4585, lng: 11.2745, category: '11', ateco: '11.02.10', atecoDesc: 'Vinificazione Chianti Classico DOCG', gases: 'Azoto alimentare (E941), CO2 (E290), Argon', application: 'Inertizzazione cantina e linee di imbottigliamento', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-98', name: 'Costruttori Serbatoi Inox & Carpenteria Valdichiana', city: 'Sinalunga', province: 'SI', address: 'Via Trento, Z.I. Sinalunga', lat: 43.2185, lng: 11.7445, category: '25', ateco: '25.29.00', atecoDesc: 'Fabbricazione serbatoi e cisterne in acciaio inox per enologia', gases: 'Argon puro, Miscele Ar/CO2, Azoto N5.0', application: 'Saldatura TIG orbitale/manuale su inox AISI 316 e taglio laser', profile: 'Serbatoio criogenico', source: 'curated' },
+            { id: 'si-99', name: 'Metalmeccanica & Taglio Laser Torrita di Siena', city: 'Torrita di Siena', province: 'SI', address: 'Via Lauretana Nord, Z.I. Torrita di Siena', lat: 43.1765, lng: 11.7815, category: '25', ateco: '25.62.00', atecoDesc: 'Taglio laser lamiera, piegatura e carpenteria industriale', gases: 'Azoto N5.0, Ossigeno, Miscele Ar/CO2', application: 'Taglio laser fibra lamiera e saldatura strutturale', profile: 'Pacchi bombole', source: 'curated' },
+            { id: 'si-100', name: 'Impiantistica Geotermica & Carpenteria Amiata', city: 'Piancastagnaio', province: 'SI', address: 'Loc. Casa del Corto, Z.I. Piancastagnaio', lat: 42.8465, lng: 11.6945, category: '25', ateco: '25.11.00', atecoDesc: 'Manutenzione centrali geotermiche, scambiatori e tubazioni', gases: 'Argon puro, Miscele Ar/CO2, Ossigeno, Azoto', application: 'Saldatura acciai legati per impianti geotermici Monte Amiata', profile: 'Pacchi bombole', source: 'curated' }
+        ];
+
+        const activeCategories = new Set(Object.keys(ATECO_CATEGORIES));
+        let selectedProvince = 'ALL';
+        let selectedGas = 'ALL';
+        let selectedProfile = 'ALL';
+        let searchQuery = '';
+
+        /**
+         * MOTORE CARTOGRAFICO SVG INTERATTIVO NATIVO (PAN, ZOOM, PROIEZIONE MERCATORE, MARKER CLICCABILI)
+         */
+        class TuscanyNativeMap {
+            constructor(containerId, center, zoom) {
+                this.container = document.getElementById(containerId);
+                this.centerLat = center[0];
+                this.centerLng = center[1];
+                this.zoom = zoom;
+                this.minZoom = 7;
+                this.maxZoom = 15;
+                this.companies = [];
+                this.selectedCompanyId = null;
+
+                this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                this.svg.style.width = '100%';
+                this.svg.style.height = '100%';
+                this.svg.style.display = 'block';
+                this.container.innerHTML = '';
+                this.container.appendChild(this.svg);
+
+                this._bindInteractions();
+                this.render();
+            }
+
+            // Proiezione Web Mercator standard
+            project(lat, lng) {
+                const scale = 256 * Math.pow(2, this.zoom);
+                const x = ((lng + 180) / 360) * scale;
+                const sinLat = Math.sin((lat * Math.PI) / 180);
+                const y = (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale;
+                return { x, y };
+            }
+
+            unproject(px, py) {
+                const scale = 256 * Math.pow(2, this.zoom);
+                const lng = (px / scale) * 360 - 180;
+                const n = Math.PI - (2 * Math.PI * py) / scale;
+                const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+                return { lat, lng };
+            }
+
+            latLngToScreen(lat, lng) {
+                const rect = this.container.getBoundingClientRect();
+                const w = rect.width || window.innerWidth || 800;
+                const h = rect.height || window.innerHeight || 600;
+                const centerPt = this.project(this.centerLat, this.centerLng);
+                const pt = this.project(lat, lng);
+                return {
+                    x: w / 2 + (pt.x - centerPt.x),
+                    y: h / 2 + (pt.y - centerPt.y)
+                };
+            }
+
+            setView(center, zoom) {
+                if (center) {
+                    this.centerLat = center[0];
+                    this.centerLng = center[1];
+                }
+                if (typeof zoom === 'number') {
+                    this.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, zoom));
+                }
+                this.render();
+            }
+
+            setZoom(zoom) {
+                this.setView(null, zoom);
+            }
+
+            getZoom() {
+                return this.zoom;
+            }
+
+            setCompanies(companies) {
+                this.companies = companies;
+                this.render();
+            }
+
+            _bindInteractions() {
+                let isDragging = false;
+                let startX = 0;
+                let startY = 0;
+                let startCenterProj = null;
+
+                const onPointerDown = (e) => {
+                    if (e.target.closest('.map-marker-group')) return;
+                    isDragging = true;
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    startX = clientX;
+                    startY = clientY;
+                    startCenterProj = this.project(this.centerLat, this.centerLng);
+                };
+
+                const onPointerMove = (e) => {
+                    if (!isDragging || !startCenterProj) return;
+                    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                    const dx = clientX - startX;
+                    const dy = clientY - startY;
+                    const newCenter = this.unproject(startCenterProj.x - dx, startCenterProj.y - dy);
+                    this.centerLat = Math.max(42.0, Math.min(44.8, newCenter.lat));
+                    this.centerLng = Math.max(9.4, Math.min(12.8, newCenter.lng));
+                    this.render();
+                };
+
+                const onPointerUp = () => {
+                    isDragging = false;
+                };
+
+                this.container.addEventListener('mousedown', onPointerDown);
+                window.addEventListener('mousemove', onPointerMove);
+                window.addEventListener('mouseup', onPointerUp);
+
+                this.container.addEventListener('touchstart', onPointerDown, { passive: true });
+                window.addEventListener('touchmove', onPointerMove, { passive: true });
+                window.addEventListener('touchend', onPointerUp);
+
+                this.container.addEventListener('wheel', (e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY < 0 ? 0.5 : -0.5;
+                    this.setZoom(this.zoom + delta);
+                }, { passive: false });
+            }
+
+            _coordsToPath(coords, closePath) {
+                return coords.map((pt, i) => {
+                    const p = this.latLngToScreen(pt[0], pt[1]);
+                    return `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+                }).join(' ') + (closePath ? ' Z' : '');
+            }
+
+            render() {
+                const rect = this.container.getBoundingClientRect();
+                const w = Math.max(rect.width || window.innerWidth || 800, 100);
+                const h = Math.max(rect.height || window.innerHeight || 600, 100);
+
+                this.svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+                let out = `<rect x="0" y="0" width="${w}" height="${h}" fill="#dbeafe" />`;
+
+                // Griglia geografica
+                for (let lat = 42.0; lat <= 44.75; lat += 0.25) {
+                    const p1 = this.latLngToScreen(lat, 9.4);
+                    const p2 = this.latLngToScreen(lat, 12.8);
+                    out += `<line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}" stroke="#bfdbfe" stroke-width="0.9" stroke-dasharray="4,4" />`;
+                }
+                for (let lng = 9.5; lng <= 12.5; lng += 0.25) {
+                    const p1 = this.latLngToScreen(42.0, lng);
+                    const p2 = this.latLngToScreen(44.8, lng);
+                    out += `<line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}" stroke="#bfdbfe" stroke-width="0.9" stroke-dasharray="4,4" />`;
+                }
+
+                // Etichetta Mar Tirreno
+                const seaPt = this.latLngToScreen(43.18, 9.95);
+                out += `<text x="${seaPt.x.toFixed(1)}" y="${seaPt.y.toFixed(1)}" fill="#60a5fa" font-size="${this.zoom >= 9 ? 15 : 12}" font-weight="700" font-style="italic" letter-spacing="2.5" text-anchor="middle">MAR TIRRENO</text>`;
+
+                // Province Toscane
+                TUSCANY_VECTOR_DATA.provinces.forEach(prov => {
+                    const d = this._coordsToPath(prov.coords, true);
+                    out += `<path d="${d}" fill="${prov.fill}" stroke="#94a3b8" stroke-width="${this.zoom >= 10 ? 1.8 : 1.2}" stroke-linejoin="round" />`;
+                });
+
+                // Arcipelago Toscano
+                TUSCANY_VECTOR_DATA.islands.forEach(isl => {
+                    const d = this._coordsToPath(isl.coords, true);
+                    out += `<path d="${d}" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.2" stroke-linejoin="round" />`;
+                    if (this.zoom >= 8) {
+                        const c = this.latLngToScreen(isl.coords[0][0], isl.coords[0][1]);
+                        out += `<text x="${(c.x + 8).toFixed(1)}" y="${(c.y + 12).toFixed(1)}" fill="#475569" font-size="9.5" font-weight="600">${isl.name}</text>`;
+                    }
+                });
+
+                // Fiumi principali
+                TUSCANY_VECTOR_DATA.rivers.forEach(river => {
+                    const d = this._coordsToPath(river.coords, false);
+                    out += `<path d="${d}" fill="none" stroke="#93c5fd" stroke-width="${this.zoom >= 10 ? 2.6 : 1.6}" stroke-linecap="round" />`;
+                });
+
+                // Rete autostradale / superstrade
+                TUSCANY_VECTOR_DATA.highways.forEach(hw => {
+                    const d = this._coordsToPath(hw.coords, false);
+                    out += `<path d="${d}" fill="none" stroke="#cbd5e1" stroke-width="${this.zoom >= 10 ? 2.8 : 1.8}" stroke-linecap="round" />`;
+                    out += `<path d="${d}" fill="none" stroke="#f59e0b" stroke-opacity="0.6" stroke-width="${this.zoom >= 10 ? 1.4 : 0.9}" stroke-dasharray="4,3" />`;
+                });
+
+                // Capoluoghi di Provincia
+                TUSCANY_VECTOR_DATA.provinces.forEach(prov => {
+                    const p = this.latLngToScreen(prov.capLat, prov.capLng);
+                    out += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${this.zoom >= 10 ? 3.5 : 2.5}" fill="#334155" stroke="#ffffff" stroke-width="1" />`;
+                    out += `<text x="${p.x.toFixed(1)}" y="${(p.y - 7).toFixed(1)}" fill="#1e293b" font-size="${this.zoom >= 10 ? 12 : 10.5}" font-weight="700" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">${prov.name} (${prov.code})</text>`;
+                });
+
+                // Comuni e distretti secondari (zoom >= 9)
+                if (this.zoom >= 9) {
+                    const capLower = new Set(TUSCANY_VECTOR_DATA.provinces.map(pr => pr.name.toLowerCase()));
+                    Object.entries(TUSCANY_GEO_LOOKUP).forEach(([cityKey, coords]) => {
+                        if (capLower.has(cityKey)) return;
+                        const p = this.latLngToScreen(coords[0], coords[1]);
+                        if (p.x < -50 || p.x > w + 50 || p.y < -50 || p.y > h + 50) return;
+                        const label = cityKey.replace(/\b\w/g, l => l.toUpperCase());
+                        out += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2" fill="#64748b" />`;
+                        out += `<text x="${p.x.toFixed(1)}" y="${(p.y - 5).toFixed(1)}" fill="#475569" font-size="${this.zoom >= 11 ? 10.5 : 9}" font-weight="500" text-anchor="middle" stroke="#ffffff" stroke-width="2.5" paint-order="stroke">${label}</text>`;
+                    });
+                }
+
+                // Marker Aziende Georeferenziate
+                this.companies.forEach(comp => {
+                    const p = this.latLngToScreen(comp.lat, comp.lng);
+                    if (p.x < -40 || p.x > w + 40 || p.y < -40 || p.y > h + 40) return;
+                    const cat = ATECO_CATEGORIES[comp.category] || ATECO_CATEGORIES['25'];
+                    const isSelected = this.selectedCompanyId === comp.id;
+                    const r = isSelected ? 11 : 8;
+
+                    out += `
+                        <g class="map-marker-group" data-id="${comp.id}" style="cursor:pointer;" transform="translate(${p.x.toFixed(1)}, ${p.y.toFixed(1)})">
+                            ${isSelected ? `<circle cx="0" cy="0" r="18" fill="${cat.color}" fill-opacity="0.28" />` : ''}
+                            <circle cx="0" cy="0" r="${r}" fill="${cat.color}" stroke="#ffffff" stroke-width="2.2" />
+                            <circle cx="0" cy="0" r="2.6" fill="#ffffff" />
+                            ${this.zoom >= 9.5 || isSelected ? `<text x="0" y="${-r - 5}" fill="#0f172a" font-size="10.5" font-weight="700" text-anchor="middle" stroke="#ffffff" stroke-width="3" paint-order="stroke">${comp.name.length > 26 ? comp.name.slice(0, 24) + '…' : comp.name}</text>` : ''}
+                        </g>
+                    `;
+                });
+
+                this.svg.innerHTML = out;
+
+                // Listener click sui marker SVG
+                this.svg.querySelectorAll('.map-marker-group').forEach(g => {
+                    g.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const id = g.getAttribute('data-id');
+                        const company = this.companies.find(c => c.id === id);
+                        if (company) {
+                            openCompanyDetailCard(company);
+                        }
+                    });
+                });
+            }
+        }
+
+        const nativeMap = new TuscanyNativeMap('map', toscanaCenter, 8);
+
+        // Ricalcolo automatico al ridimensionamento finestra o sidebar
+        function forceMapResize() {
+            if (nativeMap) nativeMap.render();
+        }
+        window.addEventListener('load', forceMapResize);
+        window.addEventListener('resize', forceMapResize);
+        setTimeout(forceMapResize, 100);
+        setTimeout(forceMapResize, 500);
+
+        if (typeof ResizeObserver !== 'undefined') {
+            const mapMainEl = document.getElementById('mapMainArea');
+            if (mapMainEl) {
+                const ro = new ResizeObserver(() => forceMapResize());
+                ro.observe(mapMainEl);
+            }
+        }
+
+        /**
+         * APERTURA / CHIUSURA SCHEDA AZIENDALE SULLA MAPPA
+         */
+        function openCompanyDetailCard(company) {
+            nativeMap.selectedCompanyId = company.id;
+            nativeMap.render();
+            const card = document.getElementById('companyDetailCard');
+            const content = document.getElementById('companyDetailContent');
+            content.innerHTML = buildPopupHtml(company);
+            card.classList.remove('hidden');
+        }
+
+        document.getElementById('closeDetailCardBtn').addEventListener('click', () => {
+            document.getElementById('companyDetailCard').classList.add('hidden');
+            nativeMap.selectedCompanyId = null;
+            nativeMap.render();
+        });
+
+        document.getElementById('zoomInBtn').addEventListener('click', () => nativeMap.setZoom(nativeMap.getZoom() + 0.8));
+        document.getElementById('zoomOutBtn').addEventListener('click', () => nativeMap.setZoom(nativeMap.getZoom() - 0.8));
+        document.getElementById('resetViewBtn').addEventListener('click', () => nativeMap.setView(toscanaCenter, 8));
+
+        /**
+         * UTILITY: NOTIFICHE TOAST (NO ALERT)
+         */
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            
+            const styles = {
+                info: 'bg-slate-900 text-white border-slate-700',
+                success: 'bg-emerald-700 text-white border-emerald-600',
+                warning: 'bg-amber-600 text-white border-amber-500',
+                error: 'bg-rose-700 text-white border-rose-600'
+            };
+
+            const icons = {
+                info: 'fa-circle-info',
+                success: 'fa-circle-check',
+                warning: 'fa-triangle-exclamation',
+                error: 'fa-circle-xmark'
+            };
+
+            toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl shadow-lg border text-xs font-medium transition-all duration-300 transform translate-y-2 opacity-0 ${styles[type] || styles.info}`;
+            toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info} text-sm"></i><span>${message}</span>`;
+            
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 4000);
+        }
+
+        /**
+         * CREAZIONE ICONA CUSTOM COLORATA PER CATEGORIA ATECO
+         */
+        function createCategoryIcon(categoryId) {
+            const cat = ATECO_CATEGORIES[categoryId] || ATECO_CATEGORIES['25'];
+            return L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div class="marker-pin" style="background-color: ${cat.color};"><i class="fa-solid ${cat.icon}"></i></div>`,
+                iconSize: [32, 42],
+                iconAnchor: [16, 42],
+                popupAnchor: [0, -38]
+            });
+        }
+
+        /**
+         * GENERAZIONE HTML DEL POPUP DETTAGLIATO
+         */
+        function buildPopupHtml(company) {
+            const cat = ATECO_CATEGORIES[company.category] || ATECO_CATEGORIES['25'];
+            const profileBadge = company.profile || cat.defaultProfile;
+            return `
+                <div class="font-sans text-slate-800">
+                    <div class="p-3.5 text-white" style="background-color: ${cat.color};">
+                        <div class="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider opacity-95 mb-1">
+                            <span class="flex items-center gap-1.5"><i class="fa-solid ${cat.icon}"></i> ATECO ${company.ateco}</span>
+                        </div>
+                        <h3 class="font-bold text-sm leading-snug pr-4">${company.name}</h3>
+                        <div class="text-xs opacity-90 mt-1 flex items-center gap-1">
+                            <i class="fa-solid fa-location-dot text-[10px]"></i>
+                            <span>${company.city} (${company.province})</span>
+                        </div>
+                    </div>
+                    <div class="p-3.5 space-y-2.5 bg-white text-xs">
+                        <div class="flex items-center justify-between bg-slate-100 px-2.5 py-1.5 rounded-lg">
+                            <span class="text-[10px] font-bold uppercase text-slate-500">Profilo Fornitura:</span>
+                            <span class="text-[11px] font-bold text-slate-800">${profileBadge}</span>
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Attività / Descrizione ATECO</span>
+                            <p class="text-slate-700 font-medium mt-0.5">${company.atecoDesc}</p>
+                        </div>
+                        <div class="p-2.5 bg-sky-50/70 rounded-lg border border-sky-200/80">
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-sky-700 flex items-center gap-1">
+                                <i class="fa-solid fa-bottle-droplet"></i> Gas Tecnici Principali
+                            </span>
+                            <p class="text-slate-800 font-semibold mt-0.5 leading-relaxed">${company.gases}</p>
+                        </div>
+                        <div>
+                            <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Applicazione Industriale</span>
+                            <p class="text-slate-600 mt-0.5 leading-relaxed">${company.application}</p>
+                        </div>
+                        ${company.address ? `
+                        <div class="pt-2 border-t border-slate-100 text-[11px] text-slate-400 flex items-center justify-between">
+                            <span class="truncate max-w-[215px]" title="${company.address}">${company.address}</span>
+                            <span class="font-mono text-[10px]">${company.lat.toFixed(4)}, ${company.lng.toFixed(4)}</span>
+                        </div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * RENDER DEI FILTRI ATECO E DELLA LEGENDA
+         */
+        function renderAtecoFiltersAndLegend() {
+            const filterContainer = document.getElementById('atecoFiltersContainer');
+            const legendContainer = document.getElementById('legendItems');
+            
+            filterContainer.innerHTML = '';
+            legendContainer.innerHTML = '';
+
+            Object.values(ATECO_CATEGORIES).forEach(cat => {
+                const count = allCompanies.filter(c => c.category === cat.id).length;
+                const isChecked = activeCategories.has(cat.id);
+
+                const label = document.createElement('label');
+                label.className = 'flex items-center justify-between p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer transition select-none';
+                label.innerHTML = `
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <input type="checkbox" value="${cat.id}" ${isChecked ? 'checked' : ''} class="ateco-checkbox w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-slate-300">
+                        <span class="w-3 h-3 rounded-full shrink-0 shadow-xs" style="background-color: ${cat.color};"></span>
+                        <div class="truncate">
+                            <div class="text-xs font-semibold text-slate-800 truncate">${cat.name}</div>
+                            <div class="text-[10px] text-slate-500 font-mono">ATECO: ${cat.codeLabel}</div>
+                        </div>
+                    </div>
+                    <span class="ml-2 text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">${count}</span>
+                `;
+                filterContainer.appendChild(label);
+
+                const legendItem = document.createElement('div');
+                legendItem.className = 'flex items-center gap-2 text-slate-700';
+                legendItem.innerHTML = `
+                    <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${cat.color};"></span>
+                    <span class="truncate text-[11px] font-medium">${cat.name}</span>
+                `;
+                legendContainer.appendChild(legendItem);
+            });
+
+            document.querySelectorAll('.ateco-checkbox').forEach(cb => {
+                cb.addEventListener('change', (e) => {
+                    const catId = e.target.value;
+                    if (e.target.checked) {
+                        activeCategories.add(catId);
+                    } else {
+                        activeCategories.delete(catId);
+                    }
+                    updateMapAndList();
+                });
+            });
+        }
+
+        /**
+         * FILTRAGGIO E AGGIORNAMENTO MAPPA + LISTA SIDEBAR + KPI
+         */
+        function getFilteredCompanies() {
+            const q = searchQuery.trim().toLowerCase();
+            const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+
+            return allCompanies.filter(c => {
+                const matchCat = activeCategories.has(c.category);
+                const matchProv = selectedProvince === 'ALL'
+                    || (selectedProvince === 'GR_SI' && (c.province === 'GR' || c.province === 'SI'))
+                    || c.province === selectedProvince;
+                
+                const gasesLower = c.gases.toLowerCase();
+                let matchGas = true;
+                if (selectedGas === 'azoto') matchGas = gasesLower.includes('azoto');
+                else if (selectedGas === 'argon') matchGas = gasesLower.includes('argon');
+                else if (selectedGas === 'ossigeno') matchGas = gasesLower.includes('ossigeno');
+                else if (selectedGas === 'co2') matchGas = gasesLower.includes('co2');
+                else if (selectedGas === 'elio') matchGas = gasesLower.includes('elio') || gasesLower.includes('idrogeno');
+
+                const profileLower = (c.profile || '').toLowerCase();
+                let matchProfile = true;
+                if (selectedProfile === 'criogenico') matchProfile = profileLower.includes('criogenico');
+                else if (selectedProfile === 'pacchi') matchProfile = profileLower.includes('pacchi');
+                else if (selectedProfile === 'bombole') matchProfile = profileLower.includes('singole') || (!profileLower.includes('criogenico') && !profileLower.includes('pacchi'));
+
+                // Ricerca intensiva multi-termine (tutte le parole cercate devono corrispondere)
+                let matchText = true;
+                if (tokens.length > 0) {
+                    const searchableCorpus = [
+                        c.name,
+                        c.city,
+                        c.province,
+                        c.address || '',
+                        c.ateco,
+                        c.atecoDesc,
+                        c.gases,
+                        c.application,
+                        c.profile || ''
+                    ].join(' ').toLowerCase();
+
+                    matchText = tokens.every(tok => searchableCorpus.includes(tok));
+                }
+
+                return matchCat && matchProv && matchGas && matchProfile && matchText;
+            });
+        }
+
+        function updateMapAndList() {
+            const filtered = getFilteredCompanies();
+            
+            // Aggiorna contatori principali e KPI
+            document.getElementById('visibleCount').textContent = filtered.length;
+            document.getElementById('totalCount').textContent = allCompanies.length;
+            document.getElementById('osmCount').textContent = allCompanies.filter(c => c.source === 'osm').length;
+
+            let cryoCount = 0, bundleCount = 0, cylinderCount = 0;
+            filtered.forEach(c => {
+                const p = (c.profile || '').toLowerCase();
+                if (p.includes('criogenico')) cryoCount++;
+                else if (p.includes('pacchi')) bundleCount++;
+                else cylinderCount++;
+            });
+            document.getElementById('kpiCryoCount').textContent = cryoCount;
+            document.getElementById('kpiBundleCount').textContent = bundleCount;
+            document.getElementById('kpiCylinderCount').textContent = cylinderCount;
+
+            // Aggiorna i marker sul motore cartografico nativo
+            nativeMap.setCompanies(filtered);
+
+            const listContainer = document.getElementById('companyListContainer');
+            listContainer.innerHTML = '';
+
+            if (filtered.length === 0) {
+                listContainer.innerHTML = `
+                    <div class="text-center py-8 px-4 bg-slate-50 rounded-xl border border-dashed border-slate-300">
+                        <i class="fa-solid fa-filter-circle-xmark text-2xl text-slate-400 mb-2"></i>
+                        <p class="text-xs font-medium text-slate-600">Nessuna azienda corrisponde ai filtri selezionati.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            filtered.forEach(company => {
+                const cat = ATECO_CATEGORIES[company.category] || ATECO_CATEGORIES['25'];
+
+                const card = document.createElement('div');
+                card.className = 'p-2.5 bg-white hover:bg-sky-50/70 border border-slate-200 hover:border-sky-300 rounded-xl cursor-pointer transition group';
+                card.innerHTML = `
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-1.5 mb-0.5">
+                                <span class="w-2 h-2 rounded-full shrink-0" style="background-color: ${cat.color};"></span>
+                                <span class="text-[10px] font-mono font-semibold text-slate-500">ATECO ${company.ateco}</span>
+                                <span class="text-[10px] font-bold px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">${company.province}</span>
+                            </div>
+                            <h4 class="text-xs font-bold text-slate-800 group-hover:text-sky-700 truncate">${company.name}</h4>
+                            <p class="text-[11px] text-slate-500 truncate mt-0.5"><i class="fa-solid fa-location-dot text-[10px] mr-1"></i>${company.city}</p>
+                        </div>
+                        <i class="fa-solid fa-chevron-right text-slate-300 group-hover:text-sky-500 text-xs mt-1"></i>
+                    </div>
+                    <div class="mt-1.5 pt-1.5 border-t border-slate-100 text-[10px] text-slate-600 truncate">
+                        <strong class="text-slate-700">Gas:</strong> ${company.gases}
+                    </div>
+                `;
+
+                card.addEventListener('click', () => {
+                    if (window.innerWidth < 768) {
+                        document.getElementById('sidebar').classList.add('-translate-x-full');
+                    }
+                    nativeMap.setView([company.lat, company.lng], Math.max(nativeMap.getZoom(), 10.5));
+                    openCompanyDetailCard(company);
+                });
+
+                listContainer.appendChild(card);
+            });
+        }
+
+        /**
+         * INTERROGAZIONE LIVE OVERPASS API CON MULTI-ENDPOINT FALLBACK (NO CORS PREFLIGHT)
+         */
+        async function queryOverpassOSM() {
+            const provinceName = document.getElementById('overpassProvince').value;
+            const categoryType = document.getElementById('overpassCategory').value;
+            const btn = document.getElementById('runOverpassBtn');
+            const statusBox = document.getElementById('overpassStatus');
+            const isAllTuscany = provinceName === 'ALL_TUSCANY';
+            const isGrSi = provinceName === 'GR_SI';
+            const isMultiArea = isAllTuscany || isGrSi;
+
+            const provCodes = {
+                'Firenze': 'FI', 'Lucca': 'LU', 'Livorno': 'LI', 'Pisa': 'PI',
+                'Pistoia': 'PT', 'Prato': 'PO', 'Arezzo': 'AR', 'Siena': 'SI',
+                'Grosseto': 'GR', 'Massa-Carrara': 'MS'
+            };
+
+            let tagFilter = '';
+            let assignedAteco = '25.62.00';
+            let assignedDesc = 'Officina metalmeccanica / Carpenteria (da OSM)';
+            let assignedGases = 'Miscele Argon/CO2, Ossigeno, Acetilene, Azoto';
+
+            if (categoryType === 'all_gas_users') {
+                tagFilter = `
+                    nwr["craft"~"metal_construction|welder|blacksmith|turner|boatbuilder|winery"](area.searchArea);
+                    nwr["industrial"~"machine_shop|metal_works|shipyard|winery|chemical|foundry"](area.searchArea);
+                    nwr["man_made"="works"]["name"](area.searchArea);
+                `;
+                assignedAteco = '25.xx / 28.xx / 11.02';
+                assignedDesc = 'Sito industriale / manifatturiero utilizzatore gas tecnici (OpenStreetMap)';
+                assignedGases = 'Azoto, Ossigeno, Miscele Argon/CO2, CO2 alimentare';
+            } else if (categoryType === 'metal') {
+                tagFilter = `
+                    nwr["craft"~"metal_construction|welder|blacksmith|turner"](area.searchArea);
+                    nwr["industrial"~"machine_shop|metal_works|foundry"](area.searchArea);
+                `;
+                assignedAteco = '25.11 / 25.62';
+                assignedDesc = 'Carpenteria metallica / Lavorazioni meccaniche (OpenStreetMap)';
+                assignedGases = 'Miscele Ar/CO2, Argon, Ossigeno, Azoto taglio laser';
+            } else if (categoryType === 'shipyard') {
+                tagFilter = `
+                    nwr["industrial"="shipyard"](area.searchArea);
+                    nwr["craft"="boatbuilder"](area.searchArea);
+                `;
+                assignedAteco = '30.11.01';
+                assignedDesc = 'Cantiere navale / Costruzioni nautiche (OpenStreetMap)';
+                assignedGases = 'Argon puro, Miscele Ar/He, Ossigeno, Acetilene';
+            } else if (categoryType === 'winery') {
+                tagFilter = `
+                    nwr["craft"="winery"](area.searchArea);
+                    nwr["industrial"="winery"](area.searchArea);
+                `;
+                assignedAteco = '11.02.10';
+                assignedDesc = 'Cantina vinicola / Produzione vino (OpenStreetMap)';
+                assignedGases = 'Azoto alimentare (E941), CO2 alimentare (E290), Argon';
+            } else {
+                tagFilter = `
+                    nwr["man_made"="works"]["name"](area.searchArea);
+                `;
+                assignedAteco = '25.xx / 28.xx';
+                assignedDesc = 'Stabilimento manifatturiero / Industriale (OpenStreetMap)';
+                assignedGases = 'Azoto, Ossigeno, Miscele saldatura / gas di processo';
+            }
+
+            let areaHeader = '';
+            if (isAllTuscany) {
+                areaHeader = `area["name"="Toscana"]["admin_level"="4"]->.searchArea;`;
+            } else if (isGrSi) {
+                areaHeader = `area["name"="Toscana"]["admin_level"="4"]->.toscana;\n(area["name"="Grosseto"]["admin_level"="6"](area.toscana); area["name"="Siena"]["admin_level"="6"](area.toscana);)->.searchArea;`;
+            } else {
+                areaHeader = `area["name"="Toscana"]["admin_level"="4"]->.toscana;\narea["name"="${provinceName}"]["admin_level"="6"](area.toscana)->.searchArea;`;
+            }
+
+            const query = `
+                [out:json][timeout:25];
+                ${areaHeader}
+                (
+                    ${tagFilter}
+                );
+                out center 180;
+            `;
+
+            const endpoints = [
+                'https://overpass-api.de/api/interpreter',
+                'https://overpass.kumi.systems/api/interpreter'
+            ];
+
+            const labelTarget = isAllTuscany ? 'Tutta la Toscana' : (isGrSi ? 'Province di Grosseto e Siena' : provinceName);
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Scansione Overpass API...</span>`;
+            statusBox.className = 'p-3 rounded-xl text-xs border bg-sky-50 border-sky-200 text-sky-800 block';
+            statusBox.innerHTML = `<i class="fa-solid fa-satellite-dish fa-beat mr-1.5"></i> Scansione intensiva OpenStreetMap per <strong>${labelTarget}</strong>...`;
+
+            let data = null;
+            for (const endpoint of endpoints) {
+                try {
+                    const response = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+                        },
+                        body: 'data=' + encodeURIComponent(query)
+                    });
+                    if (response.ok) {
+                        data = await response.json();
+                        break;
+                    }
+                } catch (err) {
+                    console.warn('Endpoint Overpass non raggiungibile, passo al fallback:', endpoint);
+                }
+            }
+
+            try {
+                if (!data) throw new Error('Tutti gli endpoint Overpass non hanno risposto');
+
+                const elements = data.elements || [];
+                let addedCount = 0;
+
+                elements.forEach(el => {
+                    const lat = el.lat || (el.center && el.center.lat);
+                    const lng = el.lon || (el.center && el.center.lon);
+                    const tags = el.tags || {};
+                    const name = tags.name || tags.operator;
+
+                    if (lat && lng && name) {
+                        const osmId = `osm-${el.type}-${el.id}`;
+                        if (!allCompanies.some(c => c.id === osmId)) {
+                            const city = tags['addr:city'] || (isMultiArea ? (lat < 43.02 ? 'Area Grosseto' : 'Area Siena') : provinceName);
+                            const street = tags['addr:street'] ? `${tags['addr:street']} ${tags['addr:housenumber'] || ''}`.trim() : '';
+                            let inferredProv = 'FI';
+                            if (!isMultiArea) {
+                                inferredProv = provCodes[provinceName] || 'FI';
+                            } else if (isGrSi) {
+                                const rawProv = inferProvinceCode(`${tags['addr:province'] || ''} ${city}`);
+                                inferredProv = (rawProv === 'GR' || rawProv === 'SI') ? rawProv : (lat < 43.02 && lng < 11.45 ? 'GR' : 'SI');
+                            } else {
+                                inferredProv = inferProvinceCode(`${tags['addr:province'] || ''} ${city}`);
+                            }
+
+                            allCompanies.push({
+                                id: osmId,
+                                name: name,
+                                city: city,
+                                province: inferredProv,
+                                address: street ? `${street}, ${city}` : `${city} (${inferredProv})`,
+                                lat: lat,
+                                lng: lng,
+                                category: 'OSM',
+                                ateco: assignedAteco,
+                                atecoDesc: tags.description || assignedDesc,
+                                gases: assignedGases,
+                                application: 'Sito mappato su OpenStreetMap - Verificare impianti saldatura / taglio laser',
+                                profile: 'Pacchi bombole',
+                                source: 'osm'
+                            });
+                            addedCount++;
+                        }
+                    }
+                });
+
+                activeCategories.add('OSM');
+                renderAtecoFiltersAndLegend();
+                updateMapAndList();
+
+                if (addedCount > 0) {
+                    statusBox.className = 'p-3 rounded-xl text-xs border bg-emerald-50 border-emerald-200 text-emerald-800 block';
+                    statusBox.innerHTML = `<i class="fa-solid fa-circle-check mr-1.5"></i> Aggiunti <strong>${addedCount}</strong> nuovi siti industriali da OpenStreetMap (${labelTarget}).`;
+                    showToast(`Importati ${addedCount} siti OSM per ${labelTarget}`, 'success');
+                } else {
+                    statusBox.className = 'p-3 rounded-xl text-xs border bg-amber-50 border-amber-200 text-amber-800 block';
+                    statusBox.innerHTML = `<i class="fa-solid fa-circle-info mr-1.5"></i> Nessun nuovo nodo con nome trovato su OSM per questa categoria (${labelTarget}).`;
+                }
+
+            } catch (err) {
+                console.error(err);
+                statusBox.className = 'p-3 rounded-xl text-xs border bg-amber-50 border-amber-200 text-amber-800 block';
+                statusBox.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-1.5"></i> Server Overpass momentaneamente occupato per rate-limit. I 70 siti locali curati restano pienamente operativi.`;
+                showToast('Rate-limit Overpass API: usa i filtri sul dataset locale', 'warning');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-cloud-arrow-down"></i> <span>Avvia Ricerca Intensiva OSM</span>`;
+            }
+        }
+
+        /**
+         * MAPPATURA AUTOMATICA CODICE ATECO -> CATEGORIA E GAS
+         */
+        function inferCategoryFromAteco(atecoCode) {
+            const clean = String(atecoCode || '').trim();
+            if (clean.startsWith('25')) return '25';
+            if (clean.startsWith('28') || clean.startsWith('29') || clean.startsWith('27')) return '28';
+            if (clean.startsWith('30')) return '30';
+            if (clean.startsWith('24')) return '24';
+            if (clean.startsWith('21') || clean.startsWith('20')) return '21';
+            if (clean.startsWith('11') || clean.startsWith('10')) return '11';
+            if (clean.startsWith('17') || clean.startsWith('23')) return '17';
+            return '25';
+        }
+
+        function inferProvinceCode(text) {
+            const t = String(text || '').toUpperCase();
+            const mapProv = {
+                'FIRENZE': 'FI', '(FI)': 'FI',
+                'LUCCA': 'LU', '(LU)': 'LU',
+                'LIVORNO': 'LI', '(LI)': 'LI',
+                'PISA': 'PI', '(PI)': 'PI',
+                'PISTOIA': 'PT', '(PT)': 'PT',
+                'PRATO': 'PO', '(PO)': 'PO',
+                'AREZZO': 'AR', '(AR)': 'AR',
+                'SIENA': 'SI', '(SI)': 'SI',
+                'GROSSETO': 'GR', '(GR)': 'GR',
+                'MASSA': 'MS', 'CARRARA': 'MS', '(MS)': 'MS'
+            };
+            for (const [key, val] of Object.entries(mapProv)) {
+                if (t.includes(key)) return val;
+            }
+            return 'FI';
+        }
+
+        /**
+         * GEOCODIFICA CON PHOTON KOMOOT (CORS-FRIENDLY) + FALLBACK DIZIONARIO OFFLINE TOSCANA
+         */
+        async function geocodeAddressSafe(addr, city, provRaw) {
+            const queryStr = `${addr ? addr + ', ' : ''}${city}, Toscana, Italia`;
+            
+            // 1. Tentativo tramite Photon Komoot API (permissivo su iframe sandbox, zero blocchi Referer)
+            try {
+                const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(queryStr)}&limit=1`;
+                const res = await fetch(photonUrl);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.features && data.features.length > 0) {
+                        const coords = data.features[0].geometry.coordinates;
+                        // Verifica che le coordinate ricadano approssimativamente in Toscana
+                        if (coords[1] >= 42.2 && coords[1] <= 44.5 && coords[0] >= 9.6 && coords[0] <= 12.4) {
+                            return {
+                                lat: coords[1],
+                                lng: coords[0],
+                                prov: inferProvinceCode(provRaw || city)
+                            };
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Photon API non disponibile, uso dizionario offline Toscana:', e);
+            }
+
+            // 2. Fallback Offline Immediato tramite dizionario dei comuni/zone industriali toscane
+            const cityKey = String(city || '').trim().toLowerCase();
+            if (TUSCANY_GEO_LOOKUP[cityKey]) {
+                const [baseLat, baseLng, provCode] = TUSCANY_GEO_LOOKUP[cityKey];
+                // Piccolo jitter deterministico per evitare sovrapposizioni esatte nello stesso comune
+                const jitterLat = (Math.random() - 0.5) * 0.008;
+                const jitterLng = (Math.random() - 0.5) * 0.008;
+                return {
+                    lat: baseLat + jitterLat,
+                    lng: baseLng + jitterLng,
+                    prov: provCode
+                };
+            }
+
+            // Ricerca parziale nel dizionario
+            for (const [key, val] of Object.entries(TUSCANY_GEO_LOOKUP)) {
+                if (cityKey.includes(key) || key.includes(cityKey)) {
+                    const jitterLat = (Math.random() - 0.5) * 0.008;
+                    const jitterLng = (Math.random() - 0.5) * 0.008;
+                    return {
+                        lat: val[0] + jitterLat,
+                        lng: val[1] + jitterLng,
+                        prov: val[2]
+                    };
+                }
+            }
+
+            return null;
+        }
+
+        /**
+         * IMPORTAZIONE CSV
+         */
+        async function handleCsvUpload(file) {
+            if (!file) return;
+            const text = await file.text();
+            const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+            if (lines.length < 2) {
+                showToast('Il file CSV sembra vuoto o privo di righe dati.', 'error');
+                return;
+            }
+
+            const delimiter = lines[0].includes(';') ? ';' : ',';
+            const headers = lines[0].split(delimiter).map(h => h.replace(/^"|"$/g, '').trim().toLowerCase());
+
+            const idxName = headers.findIndex(h => h.includes('nome') || h.includes('ragione') || h.includes('azienda'));
+            const idxCity = headers.findIndex(h => h.includes('comune') || h.includes('citta') || h.includes('città'));
+            const idxAddr = headers.findIndex(h => h.includes('indirizzo') || h.includes('via'));
+            const idxAteco = headers.findIndex(h => h.includes('ateco'));
+            const idxProv = headers.findIndex(h => h.includes('prov'));
+
+            if (idxName === -1 || (idxCity === -1 && idxAddr === -1)) {
+                showToast('Colonne mancanti: assicurati che ci siano "Nome" e "Comune" (o "Indirizzo").', 'error');
+                return;
+            }
+
+            const dataRows = lines.slice(1, 101);
+            const progressBox = document.getElementById('geocodeProgressBox');
+            const progressBar = document.getElementById('geocodeProgressBar');
+            const statusText = document.getElementById('geocodeStatusText');
+            const counterText = document.getElementById('geocodeCounter');
+
+            progressBox.classList.remove('hidden');
+            let successCount = 0;
+
+            for (let i = 0; i < dataRows.length; i++) {
+                const cols = dataRows[i].split(delimiter).map(c => c.replace(/^"|"$/g, '').trim());
+                const name = cols[idxName];
+                const city = idxCity !== -1 ? cols[idxCity] : '';
+                const addr = idxAddr !== -1 ? cols[idxAddr] : '';
+                const ateco = idxAteco !== -1 ? cols[idxAteco] : '25.62.00';
+                const provRaw = idxProv !== -1 ? cols[idxProv] : city;
+
+                counterText.textContent = `${i + 1}/${dataRows.length}`;
+                progressBar.style.width = `${Math.round(((i + 1) / dataRows.length) * 100)}%`;
+                statusText.textContent = `Georeferenziazione: ${name}...`;
+
+                if (!name) continue;
+
+                const geo = await geocodeAddressSafe(addr, city, provRaw);
+                if (geo) {
+                    const catId = inferCategoryFromAteco(ateco);
+                    const catObj = ATECO_CATEGORIES[catId];
+
+                    allCompanies.push({
+                        id: `csv-${Date.now()}-${i}`,
+                        name: name,
+                        city: city || 'Toscana',
+                        province: idxProv !== -1 && cols[idxProv].length === 2 ? cols[idxProv].toUpperCase() : geo.prov,
+                        address: addr ? `${addr}, ${city}` : city,
+                        lat: geo.lat,
+                        lng: geo.lng,
+                        category: catId,
+                        ateco: ateco || catObj.codeLabel,
+                        atecoDesc: catObj.name,
+                        gases: catObj.defaultGases,
+                        application: catObj.defaultApp,
+                        profile: catObj.defaultProfile,
+                        source: 'csv'
+                    });
+                    successCount++;
+                }
+
+                // Breve pausa gentile per non sovraccaricare Photon
+                if (i < dataRows.length - 1) {
+                    await new Promise(r => setTimeout(r, 250));
+                }
+            }
+
+            statusText.textContent = 'Importazione completata!';
+            renderAtecoFiltersAndLegend();
+            updateMapAndList();
+            showToast(`Importate e georeferenziate ${successCount} aziende dal CSV.`, 'success');
+            setTimeout(() => progressBox.classList.add('hidden'), 3500);
+        }
+
+        /**
+         * EXPORT CSV E GEOJSON
+         */
+        function downloadFile(content, fileName, mimeType) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportFilteredCsv() {
+            const filtered = getFilteredCompanies();
+            if (filtered.length === 0) {
+                showToast('Nessun dato da esportare con i filtri attuali.', 'warning');
+                return;
+            }
+            const headers = ['Nome Azienda', 'Comune', 'Provincia', 'Indirizzo', 'Codice ATECO', 'Descrizione ATECO', 'Profilo Fornitura', 'Gas Tecnici Principali', 'Applicazione', 'Latitudine', 'Longitudine'];
+            const rows = filtered.map(c => [
+                `"${c.name.replace(/"/g, '""')}"`,
+                `"${c.city}"`,
+                `"${c.province}"`,
+                `"${(c.address || '').replace(/"/g, '""')}"`,
+                `"${c.ateco}"`,
+                `"${c.atecoDesc.replace(/"/g, '""')}"`,
+                `"${(c.profile || '').replace(/"/g, '""')}"`,
+                `"${c.gases.replace(/"/g, '""')}"`,
+                `"${c.application.replace(/"/g, '""')}"`,
+                c.lat,
+                c.lng
+            ].join(';'));
+
+            const csvContent = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
+            downloadFile(csvContent, 'aziende_gas_tecnici_toscana.csv', 'text/csv;charset=utf-8;');
+            showToast(`Esportate ${filtered.length} aziende in CSV.`, 'success');
+        }
+
+        function exportFilteredGeoJson() {
+            const filtered = getFilteredCompanies();
+            if (filtered.length === 0) {
+                showToast('Nessun dato da esportare con i filtri attuali.', 'warning');
+                return;
+            }
+            const geojson = {
+                type: 'FeatureCollection',
+                features: filtered.map(c => ({
+                    type: 'Feature',
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [c.lng, c.lat]
+                    },
+                    properties: {
+                        name: c.name,
+                        city: c.city,
+                        province: c.province,
+                        address: c.address,
+                        ateco: c.ateco,
+                        atecoDesc: c.atecoDesc,
+                        profile: c.profile,
+                        gases: c.gases,
+                        application: c.application
+                    }
+                }))
+            };
+            downloadFile(JSON.stringify(geojson, null, 2), 'aziende_gas_tecnici_toscana.geojson', 'application/geo+json');
+            showToast(`Esportate ${filtered.length} aziende in GeoJSON.`, 'success');
+        }
+
+        function downloadSampleCsv() {
+            const sample = [
+                'Nome;Comune;Provincia;Indirizzo;ATECO',
+                'Officine Meccaniche Toscane Srl;Calenzano;FI;Via Vittorio Emanuele 45;25.62.00',
+                'Laser Cut Valdera Srl;Pontedera;PI;Via del Fosso Vecchio 12;25.11.00',
+                'Cantieri Navali Livorno Srl;Livorno;LI;Via Edda Fagni 18;30.11.01',
+                'Cantine del Chianti Classico;Greve in Chianti;FI;Viale Vittorio Veneto 20;11.02.10',
+                'Metallurgica Valdarno SpA;San Giovanni Valdarno;AR;Via Gruccia 15;24.10.00'
+            ].join('\n');
+            downloadFile('\uFEFF' + sample, 'template_aziende_ateco_toscana.csv', 'text/csv;charset=utf-8;');
+            showToast('Template CSV scaricato.', 'info');
+        }
+
+        function copyFilteredToClipboard() {
+            const filtered = getFilteredCompanies();
+            if (filtered.length === 0) {
+                showToast('Nessun dato da copiare con i filtri attuali.', 'warning');
+                return;
+            }
+            const headers = ['Nome Azienda', 'Comune', 'Provincia', 'Indirizzo', 'Codice ATECO', 'Descrizione ATECO', 'Profilo Fornitura', 'Gas Tecnici Principali', 'Applicazione', 'Latitudine', 'Longitudine'];
+            const rows = filtered.map(c => [
+                c.name,
+                c.city,
+                c.province,
+                c.address || '',
+                c.ateco,
+                c.atecoDesc,
+                c.profile || '',
+                c.gases,
+                c.application,
+                c.lat,
+                c.lng
+            ].join('\t'));
+
+            const tsvContent = [headers.join('\t'), ...rows].join('\n');
+            const tempTextarea = document.createElement('textarea');
+            tempTextarea.value = tsvContent;
+            tempTextarea.style.position = 'fixed';
+            tempTextarea.style.opacity = '0';
+            document.body.appendChild(tempTextarea);
+            tempTextarea.select();
+            try {
+                document.execCommand('copy');
+                showToast(`Copiate ${filtered.length} aziende negli appunti (pronte da incollare in Excel).`, 'success');
+            } catch (err) {
+                showToast('Impossibile copiare negli appunti, usa il tasto Esporta CSV.', 'error');
+            }
+            document.body.removeChild(tempTextarea);
+        }
+
+        /**
+         * GESTIONE EVENTI UI
+         */
+        document.addEventListener('DOMContentLoaded', () => {
+            renderAtecoFiltersAndLegend();
+            updateMapAndList();
+
+            // Tabs Sidebar
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => {
+                        b.classList.remove('border-sky-600', 'text-sky-600');
+                        b.classList.add('border-transparent', 'text-slate-500');
+                    });
+                    btn.classList.add('border-sky-600', 'text-sky-600');
+                    btn.classList.remove('border-transparent', 'text-slate-500');
+
+                    const target = btn.dataset.tab;
+                    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.add('hidden'));
+                    document.getElementById(`tab-${target}`).classList.remove('hidden');
+                });
+            });
+
+            // Ricerca testuale e Chip di ricerca rapida
+            const searchInput = document.getElementById('searchInput');
+            const clearSearchBtn = document.getElementById('clearSearchBtn');
+            searchInput.addEventListener('input', (e) => {
+                searchQuery = e.target.value;
+                clearSearchBtn.classList.toggle('hidden', !searchQuery);
+                updateMapAndList();
+            });
+            clearSearchBtn.addEventListener('click', () => {
+                searchInput.value = '';
+                searchQuery = '';
+                clearSearchBtn.classList.add('hidden');
+                updateMapAndList();
+            });
+            document.querySelectorAll('.quick-search-chip').forEach(chip => {
+                chip.addEventListener('click', () => {
+                    const q = chip.getAttribute('data-query') || '';
+                    searchInput.value = q;
+                    searchQuery = q;
+                    clearSearchBtn.classList.toggle('hidden', !searchQuery);
+                    updateMapAndList();
+                });
+            });
+
+            // Attivazione Focus Rapido su Province di Grosseto e Siena (GR + SI)
+            const activateFocusGrSi = () => {
+                selectedProvince = 'GR_SI';
+                document.getElementById('provinceFilter').value = 'GR_SI';
+                document.getElementById('overpassProvince').value = 'GR_SI';
+                updateMapAndList();
+                nativeMap.setView([43.04, 11.28], 8.6);
+                showToast('Filtro attivo: Focus intensivo su Grosseto (GR) e Siena (SI)', 'info');
+            };
+            document.getElementById('focusGrSiChip').addEventListener('click', activateFocusGrSi);
+            document.getElementById('mapFocusGrSiBtn').addEventListener('click', activateFocusGrSi);
+
+            // Pulsanti rapidi di scansione OSM e Export sempre visibili
+            document.getElementById('quickExportCsvBtn').addEventListener('click', exportFilteredCsv);
+            document.getElementById('mapExportCsvBtn').addEventListener('click', exportFilteredCsv);
+            document.getElementById('mapExportGeoJsonBtn').addEventListener('click', exportFilteredGeoJson);
+            document.getElementById('mapCopyDataBtn').addEventListener('click', copyFilteredToClipboard);
+            document.getElementById('copyTableBtn').addEventListener('click', copyFilteredToClipboard);
+
+            const triggerRegionalOsm = () => {
+                const provSel = document.getElementById('provinceFilter').value;
+                const provMap = {
+                    'GR_SI': 'GR_SI',
+                    'FI': 'Firenze', 'LU': 'Lucca', 'LI': 'Livorno', 'PI': 'Pisa',
+                    'PT': 'Pistoia', 'PO': 'Prato', 'AR': 'Arezzo', 'SI': 'Siena',
+                    'GR': 'Grosseto', 'MS': 'Massa-Carrara'
+                };
+                document.getElementById('overpassProvince').value = provSel !== 'ALL' ? (provMap[provSel] || 'GR_SI') : 'GR_SI';
+                document.getElementById('overpassCategory').value = 'all_gas_users';
+                queryOverpassOSM();
+            };
+            document.getElementById('sidebarDeepOsmBtn').addEventListener('click', triggerRegionalOsm);
+            document.getElementById('mapDeepOsmBtn').addEventListener('click', triggerRegionalOsm);
+
+            // Filtro Provincia, Gas e Tipologia Fornitura
+            document.getElementById('provinceFilter').addEventListener('change', (e) => {
+                selectedProvince = e.target.value;
+                if (selectedProvince === 'GR_SI') {
+                    nativeMap.setView([43.04, 11.28], 8.6);
+                } else if (selectedProvince === 'GR') {
+                    nativeMap.setView([42.78, 11.15], 9.2);
+                } else if (selectedProvince === 'SI') {
+                    nativeMap.setView([43.28, 11.42], 9.2);
+                }
+                updateMapAndList();
+            });
+            document.getElementById('gasFilter').addEventListener('change', (e) => {
+                selectedGas = e.target.value;
+                updateMapAndList();
+            });
+            document.getElementById('profileFilter').addEventListener('change', (e) => {
+                selectedProfile = e.target.value;
+                updateMapAndList();
+            });
+
+            // Seleziona / Deseleziona tutti ATECO
+            const toggleAllBtn = document.getElementById('toggleAllAtecoBtn');
+            toggleAllBtn.addEventListener('click', () => {
+                const allKeys = Object.keys(ATECO_CATEGORIES);
+                if (activeCategories.size === allKeys.length) {
+                    activeCategories.clear();
+                    toggleAllBtn.textContent = 'Seleziona tutti';
+                } else {
+                    allKeys.forEach(k => activeCategories.add(k));
+                    toggleAllBtn.textContent = 'Deseleziona tutti';
+                }
+                renderAtecoFiltersAndLegend();
+                updateMapAndList();
+            });
+
+            // Reset Filtri
+            document.getElementById('resetFiltersBtn').addEventListener('click', () => {
+                searchInput.value = '';
+                searchQuery = '';
+                clearSearchBtn.classList.add('hidden');
+                selectedProvince = 'ALL';
+                document.getElementById('provinceFilter').value = 'ALL';
+                selectedGas = 'ALL';
+                document.getElementById('gasFilter').value = 'ALL';
+                selectedProfile = 'ALL';
+                document.getElementById('profileFilter').value = 'ALL';
+                Object.keys(ATECO_CATEGORIES).forEach(k => activeCategories.add(k));
+                toggleAllBtn.textContent = 'Deseleziona tutti';
+                renderAtecoFiltersAndLegend();
+                updateMapAndList();
+                nativeMap.setView(toscanaCenter, 8);
+            });
+
+            // Centra Toscana
+            document.getElementById('fitBoundsBtn').addEventListener('click', () => {
+                nativeMap.setView(toscanaCenter, 8);
+            });
+
+            // Mobile Sidebar Toggle
+            document.getElementById('mobileToggleBtn').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.remove('-translate-x-full');
+            });
+            document.getElementById('closeSidebarBtn').addEventListener('click', () => {
+                document.getElementById('sidebar').classList.add('-translate-x-full');
+            });
+
+            // Overpass API
+            document.getElementById('runOverpassBtn').addEventListener('click', queryOverpassOSM);
+            document.getElementById('clearOsmBtn').addEventListener('click', () => {
+                const before = allCompanies.length;
+                allCompanies = allCompanies.filter(c => c.source !== 'osm');
+                const removed = before - allCompanies.length;
+                renderAtecoFiltersAndLegend();
+                updateMapAndList();
+                if (removed > 0) showToast(`Rimossi ${removed} nodi OSM dalla mappa.`, 'info');
+            });
+
+            // Import/Export CSV & GeoJSON
+            document.getElementById('csvFileInput').addEventListener('change', (e) => {
+                handleCsvUpload(e.target.files[0]);
+                e.target.value = '';
+            });
+            document.getElementById('downloadTemplateBtn').addEventListener('click', downloadSampleCsv);
+            document.getElementById('exportCsvBtn').addEventListener('click', exportFilteredCsv);
+            document.getElementById('exportGeoJsonBtn').addEventListener('click', exportFilteredGeoJson);
+        });
+    </script>
+</body>
+</html>
